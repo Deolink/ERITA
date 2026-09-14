@@ -1,10 +1,10 @@
-# ERITA — Elden Ring Dublagem ITA
+# ERITA — Elden Ring Dublagem ITA (WORK IN PROGRESS)
 
 Patcher per applicare il doppiaggio in Italiano a Elden Ring (PC).
 
 Fork di [ERPT-BR](https://github.com/lorepamplona/ERPT-BR) di [@lorepamplona](https://github.com/lorepamplona), adattato per il doppiaggio italiano da [@Deolink](https://github.com/Deolink).
 
-**Download:** [Nexus Mods](https://www.nexusmods.com/eldenring/mods/4295)
+**Download:** (WORK IN PROGRESS)
 
 Questa versione candidata ha come obiettivo tecnico **Elden Ring 1.17.1 (Steam build
 25080141)** e abbandona l'eseguibile proprietario che causava avvisi degli antivirus.
@@ -177,9 +177,9 @@ consentita e pubblicano un unico ZIP proprio, con digest SHA-256 e attestazione 
 provenienza registrati da GitHub. Finché lo smoke test reale è in sospeso, il
 workflow pubblica la versione come pre-release.
 
-Segnalazioni e codice: [GitHub](https://github.com/lorepamplona/ERPT-BR)
+Segnalazioni e codice: [GitHub](https://github.com/Deolink/ERITA)
 
-Pagina del mod: [Nexus Mods](https://www.nexusmods.com/eldenring/mods/4295)
+Pagina del mod: (WORK IN PROGRESS)
 
 ## Licenza
 
