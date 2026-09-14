@@ -1,47 +1,47 @@
 # ERPT-BR — Elden Ring Dublagem PT-BR
 
-Patcher para aplicar dublagem em Portugues Brasileiro no Elden Ring (PC).
+Patcher per applicare il doppiaggio in Portoghese Brasiliano a Elden Ring (PC).
 
 **Download:** [Nexus Mods](https://www.nexusmods.com/eldenring/mods/4295)
 
-## Funcionalidades
+## Funzionalità
 
-- Aplica patch de audio diretamente nos arquivos do jogo (sem Mod Engine)
-- Compativel com jogo online
-- Interface grafica com processo guiado passo a passo
-- Deteccao automatica da pasta do jogo via Steam
-- Suporte a Windows, Linux, macOS e Steam Deck
-- Atualizacao automatica
+- Applica la patch audio direttamente ai file del gioco (senza Mod Engine)
+- Compatibile con il gioco online
+- Interfaccia grafica con processo guidato passo passo
+- Rilevamento automatico della cartella del gioco via Steam
+- Supporto per Windows, Linux, macOS e Steam Deck
+- Aggiornamento automatico
 
-## Como usar
+## Come si usa
 
-1. Baixe o ultimo release na aba [Releases](https://github.com/lorepamplona/ERPT-BR/releases)
-2. Extraia o zip
-3. Execute `EldenRing_Dublagem_PTBR.exe`
-4. Siga as instrucoes na tela
+1. Scarica l'ultima release nella scheda [Releases](https://github.com/lorepamplona/ERPT-BR/releases)
+2. Estrai lo zip
+3. Esegui `EldenRing_Dublagem_PTBR.exe`
+4. Segui le istruzioni a schermo
 
-## Privacidade
+## Privacy
 
-Este software **nao coleta, transmite ou armazena nenhum dado do usuario**. A unica conexao de rede realizada e para verificar atualizacoes na API publica do GitHub.
+Questo software **non raccoglie, trasmette o memorizza nessun dato dell'utente**. L'unica connessione di rete effettuata serve a verificare gli aggiornamenti tramite l'API pubblica di GitHub.
 
 ## Code Signing Policy
 
-Este projeto utiliza code signing para garantir a integridade dos executaveis distribuidos.
+Questo progetto utilizza la firma del codice per garantire l'integrità degli eseguibili distribuiti.
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+Firma del codice gratuita fornita da [SignPath.io](https://signpath.io), certificato di [SignPath Foundation](https://signpath.org).
 
-### Equipe
+### Team
 
-| Papel | Membro |
+| Ruolo | Membro |
 |-------|--------|
 | Author / Approver | [@lorepamplona](https://github.com/lorepamplona) |
 
 ### Processo
 
-- Todos os binarios sao construidos via GitHub Actions a partir do codigo fonte deste repositorio
-- Signing requests sao aprovadas pelo maintainer listado acima
-- Apenas binarios construidos pelo CI sao assinados (trusted build system)
+- Tutti i binari sono compilati tramite GitHub Actions a partire dal codice sorgente di questo repository
+- Le richieste di firma sono approvate dal maintainer indicato sopra
+- Solo i binari compilati dal CI vengono firmati (trusted build system)
 
-## Licenca
+## Licenza
 
 [MIT](LICENSE)

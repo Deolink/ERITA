@@ -106,7 +106,7 @@ PATCHER_VERSION = "0.8.4"
 GITHUB_REPO = "lorepamplona/ERPT-BR"
 KOFI_URL = "https://ko-fi.com/yelore"
 STEAM_APP_ID = 1245620
-APP_NAME = "Elden Ring - Dublagem PT-BR"
+APP_NAME = "Elden Ring - Doppiaggio PT-BR"
 
 
 def _get_exe_dir() -> str:
@@ -573,7 +573,7 @@ class PatchEngine:
             if not os.path.exists(bdt_path):
                 continue
 
-            self.log(f"Decriptando {bhd_file}...")
+            self.log(f"Decrittografando {bhd_file}...")
             with open(bhd_path, 'rb') as f:
                 encrypted = f.read()
 
@@ -588,9 +588,9 @@ class PatchEngine:
                 for entry in bucket.file_entries:
                     self.entry_by_hash[entry.file_name_hash] = (entry, bdt_path)
                     count += 1
-            self.log(f"  {bhd_file}: {count} entradas")
+            self.log(f"  {bhd_file}: {count} voci")
 
-        self.log(f"  Total: {len(self.entry_by_hash)} entradas")
+        self.log(f"  Totale: {len(self.entry_by_hash)} voci")
         return len(self.entry_by_hash)
 
     def scan_replacements(self, wem_dir: str) -> dict[int, str]:
@@ -633,29 +633,29 @@ class PatchEngine:
         bdt_path = os.path.join(self.sd_dir, "sd.bdt")
         backup_path = bdt_path + ".original"
         if os.path.exists(backup_path):
-            self.log("Backup já existe (sd.bdt.original)")
+            self.log("Il backup esiste già (sd.bdt.original)")
             return True
 
-        self.log("Criando backup do sd.bdt (pode demorar)...")
+        self.log("Creazione del backup di sd.bdt in corso (può richiedere tempo)...")
         try:
             shutil.copy2(bdt_path, backup_path)
-            self.log("Backup criado!")
+            self.log("Backup creato!")
             return True
         except PermissionError:
             self.log(
-                "Erro de permissão ao criar backup.\n"
-                "Feche o Elden Ring e execute o patcher como Administrador."
+                "Errore di permessi durante la creazione del backup.\n"
+                "Chiudi Elden Ring ed esegui il patcher come Amministratore."
             )
             raise PermissionError(
-                "Sem permissão para acessar sd.bdt.\n\n"
-                "Possíveis soluções:\n"
-                "  • Feche o Elden Ring completamente antes de usar o patcher\n"
-                "  • Execute o patcher como Administrador (clique direito → Executar como administrador)\n"
-                "  • Verifique se o arquivo não está marcado como Somente Leitura\n"
-                "    (clique direito no sd.bdt → Propriedades → desmarque 'Somente leitura')"
+                "Permesso negato per accedere a sd.bdt.\n\n"
+                "Possibili soluzioni:\n"
+                "  • Chiudi completamente Elden Ring prima di usare il patcher\n"
+                "  • Esegui il patcher come Amministratore (tasto destro → Esegui come amministratore)\n"
+                "  • Verifica che il file non sia impostato come Sola lettura\n"
+                "    (tasto destro su sd.bdt → Proprietà → deseleziona 'Sola lettura')"
             )
         except Exception as ex:
-            self.log(f"Erro ao criar backup: {ex}")
+            self.log(f"Errore durante la creazione del backup: {ex}")
             return False
 
     def restore_backup(self) -> bool:
@@ -663,16 +663,16 @@ class PatchEngine:
         bdt_path = os.path.join(self.sd_dir, "sd.bdt")
         backup_path = bdt_path + ".original"
         if not os.path.exists(backup_path):
-            self.log("Backup não encontrado (sd.bdt.original)")
+            self.log("Backup non trovato (sd.bdt.original)")
             return False
 
-        self.log("Restaurando sd.bdt original...")
+        self.log("Ripristino di sd.bdt originale in corso...")
         try:
             shutil.copy2(backup_path, bdt_path)
-            self.log("Restaurado com sucesso!")
+            self.log("Ripristinato con successo!")
             return True
         except Exception as ex:
-            self.log(f"Erro ao restaurar: {ex}")
+            self.log(f"Errore durante il ripristino: {ex}")
             return False
 
     def apply_patches(self, replacements: dict[int, str],
@@ -691,7 +691,7 @@ class PatchEngine:
             by_bdt[bdt_path].append((h, path))
 
         for bdt_path, items in by_bdt.items():
-            self.log(f"Patcheando {os.path.basename(bdt_path)}...")
+            self.log(f"Applicazione patch a {os.path.basename(bdt_path)}...")
             # Try to clear the read-only attribute before checking write access
             try:
                 os.chmod(bdt_path, stat.S_IWRITE | stat.S_IREAD)
@@ -699,12 +699,12 @@ class PatchEngine:
                 pass  # If we can't chmod, the access check below will catch it
             if not os.access(bdt_path, os.W_OK):
                 raise PermissionError(
-                    f"Sem permissão para modificar {os.path.basename(bdt_path)}.\n\n"
-                    "Possíveis soluções:\n"
-                    "  • Feche o Elden Ring completamente antes de usar o patcher\n"
-                    "  • Execute o patcher como Administrador (clique direito → Executar como administrador)\n"
-                    "  • Verifique se o arquivo não está marcado como Somente Leitura\n"
-                    "    (clique direito no sd.bdt → Propriedades → desmarque 'Somente leitura')"
+                    f"Permesso negato per modificare {os.path.basename(bdt_path)}.\n\n"
+                    "Possibili soluzioni:\n"
+                    "  • Chiudi completamente Elden Ring prima di usare il patcher\n"
+                    "  • Esegui il patcher come Amministratore (tasto destro → Esegui come amministratore)\n"
+                    "  • Verifica che il file non sia impostato come Sola lettura\n"
+                    "    (tasto destro su sd.bdt → Proprietà → deseleziona 'Sola lettura')"
                 )
             with open(bdt_path, 'r+b') as bdt_f:
                 for h, wem_path in items:
@@ -714,8 +714,8 @@ class PatchEngine:
                             wem_data = f.read()
 
                         if len(wem_data) > entry.padded_file_size:
-                            self.log(f"  SKIP: {os.path.basename(wem_path)} "
-                                     f"muito grande ({len(wem_data)} > {entry.padded_file_size})")
+                            self.log(f"  SALTATO: {os.path.basename(wem_path)} "
+                                     f"troppo grande ({len(wem_data)} > {entry.padded_file_size})")
                             failed += 1
                             continue
 
@@ -741,7 +741,7 @@ class PatchEngine:
                         success += 1
 
                     except Exception as ex:
-                        self.log(f"  ERRO: {os.path.basename(wem_path)}: {ex}")
+                        self.log(f"  ERRORE: {os.path.basename(wem_path)}: {ex}")
                         failed += 1
 
                     if progress_callback:
@@ -829,7 +829,7 @@ class PatcherApp(ctk.CTk):
             text_color=TEXT_MUTED
         ).pack(pady=(30, 0))
         ctk.CTkLabel(
-            self.sidebar, text="Dublagem PT-BR",
+            self.sidebar, text="Doppiaggio PT-BR",
             font=ctk.CTkFont("Segoe UI", 20, "bold"),
             text_color=ACCENT_GOLD
         ).pack(pady=(2, 5))
@@ -844,7 +844,7 @@ class PatcherApp(ctk.CTk):
         steps_frame.pack(expand=True, fill="both", padx=20, pady=30)
 
         self._step_labels = []
-        step_names = ["Bem-vindo", "Caminho do jogo", "Instalando...", "Concluido"]
+        step_names = ["Benvenuto", "Percorso del gioco", "Installazione...", "Completato"]
         for i, name in enumerate(step_names):
             row = ctk.CTkFrame(steps_frame, fg_color="transparent")
             row.pack(fill="x", pady=6)
@@ -871,7 +871,7 @@ class PatcherApp(ctk.CTk):
         sidebar_footer.pack(side="bottom", fill="x", padx=15, pady=15)
         ctk.CTkLabel(
             sidebar_footer,
-            text="Funciona online\nSem DLL, sem ModEngine",
+            text="Funziona online\nSenza DLL, senza ModEngine",
             font=ctk.CTkFont("Segoe UI", 10),
             text_color=TEXT_MUTED, justify="center"
         ).pack()
@@ -893,7 +893,7 @@ class PatcherApp(ctk.CTk):
         bottom_inner.pack(fill="both", expand=True, padx=25)
 
         self.btn_back = ctk.CTkButton(
-            bottom_inner, text="< Voltar",
+            bottom_inner, text="< Indietro",
             font=ctk.CTkFont("Segoe UI", 12),
             fg_color="transparent", hover_color=BG_CARD_HOVER,
             text_color=TEXT_SECONDARY, width=100, height=36,
@@ -902,7 +902,7 @@ class PatcherApp(ctk.CTk):
         self.btn_back.pack(side="left", pady=12)
 
         self.btn_next = ctk.CTkButton(
-            bottom_inner, text="Proximo >",
+            bottom_inner, text="Avanti >",
             font=ctk.CTkFont("Segoe UI", 13, "bold"),
             fg_color=ACCENT_GOLD, hover_color=ACCENT_GOLD_HOVER,
             text_color="#0a0a0f", width=140, height=38,
@@ -911,7 +911,7 @@ class PatcherApp(ctk.CTk):
         self.btn_next.pack(side="right", pady=12)
 
         self.btn_cancel = ctk.CTkButton(
-            bottom_inner, text="Cancelar",
+            bottom_inner, text="Annulla",
             font=ctk.CTkFont("Segoe UI", 12),
             fg_color="transparent", hover_color=BG_CARD_HOVER,
             text_color=TEXT_MUTED, width=90, height=36,
@@ -926,7 +926,7 @@ class PatcherApp(ctk.CTk):
         self._pages[STEP_WELCOME] = page
 
         ctk.CTkLabel(
-            page, text="Bem-vindo ao Assistente\nde Instalacao",
+            page, text="Benvenuto nella Procedura\nGuidata di Installazione",
             font=ctk.CTkFont("Segoe UI", 24, "bold"),
             text_color=TEXT_PRIMARY, justify="left", anchor="w"
         ).pack(anchor="w", pady=(10, 10))
@@ -934,9 +934,9 @@ class PatcherApp(ctk.CTk):
         ctk.CTkLabel(
             page,
             text=(
-                "O Assistente de Instalacao ira aplicar a dublagem em\n"
-                "portugues brasileiro no seu Elden Ring.\n\n"
-                "O que sera feito:\n"
+                "La procedura guidata applicherà il doppiaggio in\n"
+                "portoghese brasiliano al tuo Elden Ring.\n\n"
+                "Cosa verrà fatto:\n"
             ),
             font=ctk.CTkFont("Segoe UI", 13),
             text_color=TEXT_SECONDARY, justify="left", anchor="w"
@@ -944,10 +944,10 @@ class PatcherApp(ctk.CTk):
 
         # Feature list
         features = [
-            ("Mais de 9.000 dialogos dublados em PT-BR", SUCCESS_GREEN),
-            ("Backup automatico do arquivo original", SUCCESS_GREEN),
-            ("Funciona online - sem risco de ban", SUCCESS_GREEN),
-            ("Restauracao com um clique se quiser voltar", SUCCESS_GREEN),
+            ("Oltre 9.000 dialoghi doppiati in PT-BR", SUCCESS_GREEN),
+            ("Backup automatico del file originale", SUCCESS_GREEN),
+            ("Funziona online - nessun rischio di ban", SUCCESS_GREEN),
+            ("Ripristino con un click se vuoi tornare indietro", SUCCESS_GREEN),
         ]
         for text, color in features:
             row = ctk.CTkFrame(page, fg_color="transparent")
@@ -965,7 +965,7 @@ class PatcherApp(ctk.CTk):
 
         ctk.CTkLabel(
             page,
-            text='\nClique em "Proximo" para continuar.',
+            text='\nClicca su "Avanti" per continuare.',
             font=ctk.CTkFont("Segoe UI", 12),
             text_color=TEXT_MUTED, anchor="w"
         ).pack(anchor="w", pady=(15, 0))
@@ -975,14 +975,14 @@ class PatcherApp(ctk.CTk):
         self._pages[STEP_PATH] = page
 
         ctk.CTkLabel(
-            page, text="Caminho do Elden Ring",
+            page, text="Percorso di Elden Ring",
             font=ctk.CTkFont("Segoe UI", 22, "bold"),
             text_color=TEXT_PRIMARY, anchor="w"
         ).pack(anchor="w", pady=(20, 8))
 
         ctk.CTkLabel(
             page,
-            text="Selecione a pasta Game do Elden Ring onde a\ndublagem sera instalada.",
+            text="Seleziona la cartella Game di Elden Ring dove\nverrà installato il doppiaggio.",
             font=ctk.CTkFont("Segoe UI", 13),
             text_color=TEXT_SECONDARY, justify="left", anchor="w"
         ).pack(anchor="w", pady=(0, 15))
@@ -995,7 +995,7 @@ class PatcherApp(ctk.CTk):
         path_inner.pack(fill="x", padx=20, pady=18)
 
         ctk.CTkLabel(
-            path_inner, text="Pasta do jogo:",
+            path_inner, text="Cartella del gioco:",
             font=ctk.CTkFont("Segoe UI", 12, "bold"),
             text_color=TEXT_PRIMARY, anchor="w"
         ).pack(anchor="w", pady=(0, 6))
@@ -1013,7 +1013,7 @@ class PatcherApp(ctk.CTk):
         self.path_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
         ctk.CTkButton(
-            path_row, text="Procurar...",
+            path_row, text="Sfoglia...",
             font=ctk.CTkFont("Segoe UI", 12),
             fg_color=ACCENT_GOLD_DIM, hover_color=ACCENT_GOLD,
             text_color=TEXT_PRIMARY, width=110, height=38,
@@ -1036,13 +1036,13 @@ class PatcherApp(ctk.CTk):
 
         ctk.CTkLabel(
             restore_inner,
-            text="Ja instalou antes e quer restaurar o original?",
+            text="Hai già installato in precedenza e vuoi ripristinare l'originale?",
             font=ctk.CTkFont("Segoe UI", 12),
             text_color=TEXT_SECONDARY, anchor="w"
         ).pack(side="left")
 
         self.restore_btn = ctk.CTkButton(
-            restore_inner, text="Restaurar Original",
+            restore_inner, text="Ripristina Originale",
             font=ctk.CTkFont("Segoe UI", 11),
             fg_color="transparent", hover_color=BG_CARD_HOVER,
             text_color=ERROR_RED, width=140, height=30,
@@ -1056,13 +1056,13 @@ class PatcherApp(ctk.CTk):
         self._pages[STEP_INSTALLING] = page
 
         ctk.CTkLabel(
-            page, text="Instalando dublagem...",
+            page, text="Installazione del doppiaggio in corso...",
             font=ctk.CTkFont("Segoe UI", 22, "bold"),
             text_color=TEXT_PRIMARY, anchor="w"
         ).pack(anchor="w", pady=(20, 8))
 
         self.install_status_label = ctk.CTkLabel(
-            page, text="Preparando...",
+            page, text="Preparazione...",
             font=ctk.CTkFont("Segoe UI", 13),
             text_color=TEXT_SECONDARY, anchor="w"
         )
@@ -1120,7 +1120,7 @@ class PatcherApp(ctk.CTk):
         self.done_icon_label.pack(pady=(0, 10))
 
         self.done_title_label = ctk.CTkLabel(
-            center, text="Dublagem instalada\ncom sucesso!",
+            center, text="Doppiaggio installato\ncon successo!",
             font=ctk.CTkFont("Segoe UI", 24, "bold"),
             text_color=TEXT_PRIMARY, justify="center"
         )
@@ -1135,14 +1135,14 @@ class PatcherApp(ctk.CTk):
 
         ctk.CTkLabel(
             center,
-            text="Inicie o Elden Ring normalmente e aproveite\na dublagem em portugues!",
+            text="Avvia Elden Ring normalmente e goditi\nil doppiaggio in portoghese!",
             font=ctk.CTkFont("Segoe UI", 13),
             text_color=TEXT_SECONDARY, justify="center"
         ).pack(pady=(0, 20))
 
         # Ko-fi support button
         ctk.CTkButton(
-            center, text="Apoie o projeto no Ko-fi",
+            center, text="Sostieni il progetto su Ko-fi",
             font=ctk.CTkFont("Segoe UI", 14, "bold"),
             fg_color="#ff5e5b", hover_color="#ff7a78",
             text_color="#ffffff", height=44, width=250,
@@ -1152,7 +1152,7 @@ class PatcherApp(ctk.CTk):
 
         ctk.CTkLabel(
             center,
-            text="Sua contribuicao ajuda a manter o projeto ativo!",
+            text="Il tuo contributo aiuta a mantenere attivo il progetto!",
             font=ctk.CTkFont("Segoe UI", 11),
             text_color=TEXT_MUTED, justify="center"
         ).pack()
@@ -1186,24 +1186,24 @@ class PatcherApp(ctk.CTk):
         # Update nav buttons
         if step == STEP_WELCOME:
             self.btn_back.configure(state="disabled", text_color=TEXT_MUTED)
-            self.btn_next.configure(text="Proximo >", state="normal",
+            self.btn_next.configure(text="Avanti >", state="normal",
                                     fg_color=ACCENT_GOLD, command=self._go_next)
             self.btn_cancel.pack(side="right", padx=(0, 8), pady=12)
         elif step == STEP_PATH:
             self.btn_back.configure(state="normal", text_color=TEXT_SECONDARY,
                                     command=self._go_back)
-            self.btn_next.configure(text="Instalar", state="normal",
+            self.btn_next.configure(text="Installa", state="normal",
                                     fg_color=ACCENT_GOLD, command=self._go_next)
             self.btn_cancel.pack(side="right", padx=(0, 8), pady=12)
             self._auto_detect()
         elif step == STEP_INSTALLING:
             self.btn_back.configure(state="disabled", text_color=TEXT_MUTED)
-            self.btn_next.configure(text="Aguarde...", state="disabled",
+            self.btn_next.configure(text="Attendere...", state="disabled",
                                     fg_color=ACCENT_GOLD_DIM, command=self._go_next)
             self.btn_cancel.pack_forget()
         elif step == STEP_DONE:
             self.btn_back.pack_forget()
-            self.btn_next.configure(text="Fechar", state="normal",
+            self.btn_next.configure(text="Chiudi", state="normal",
                                     fg_color=ACCENT_GOLD, command=self.destroy)
             self.btn_cancel.pack_forget()
 
@@ -1233,19 +1233,19 @@ class PatcherApp(ctk.CTk):
                 missing = [k for k, v in movies.items() if v is None]
                 if missing:
                     msg = (
-                        "As seguintes pastas de cutscenes nao foram encontradas "
-                        "ao lado do instalador:\n\n"
+                        "Le seguenti cartelle di cutscene non sono state trovate "
+                        "accanto all'installer:\n\n"
                     )
                     for m in missing:
                         msg += f"  - {m}/\n"
                     msg += (
-                        "\nAs cutscenes (cinematicas) do jogo NAO serao "
-                        "traduzidas.\n\n"
-                        "Para incluir as cutscenes, baixe o arquivo opcional "
-                        "no Nexus Mods e extraia na mesma pasta do instalador.\n\n"
-                        "Deseja continuar mesmo assim?"
+                        "\nLe cutscene (filmati) del gioco NON verranno "
+                        "tradotte.\n\n"
+                        "Per includere le cutscene, scarica il file opzionale "
+                        "su Nexus Mods ed estrailo nella stessa cartella dell'installer.\n\n"
+                        "Vuoi continuare comunque?"
                     )
-                    if not messagebox.askyesno("Cutscenes nao encontradas", msg):
+                    if not messagebox.askyesno("Cutscene non trovate", msg):
                         return
                 self._show_page(STEP_INSTALLING)
                 threading.Thread(target=self._install_worker, daemon=True).start()
@@ -1280,39 +1280,39 @@ class PatcherApp(ctk.CTk):
         if path:
             self.path_var.set(path)
             self.detect_label.configure(
-                text="Detectado automaticamente via Steam",
+                text="Rilevato automaticamente tramite Steam",
                 text_color=SUCCESS_GREEN)
         else:
             self.detect_label.configure(
-                text="Nao detectado. Selecione manualmente.",
+                text="Non rilevato. Seleziona manualmente.",
                 text_color=ERROR_RED)
 
     def _browse(self):
-        path = filedialog.askdirectory(title="Selecione a pasta Game do Elden Ring")
+        path = filedialog.askdirectory(title="Seleziona la cartella Game di Elden Ring")
         if path:
             self.path_var.set(path)
             if os.path.isfile(os.path.join(path, "sd", "sd.bhd")):
                 self.detect_label.configure(
-                    text="Pasta valida!", text_color=SUCCESS_GREEN)
+                    text="Cartella valida!", text_color=SUCCESS_GREEN)
             else:
                 self.detect_label.configure(
-                    text="sd/sd.bhd nao encontrado nesta pasta",
+                    text="sd/sd.bhd non trovato in questa cartella",
                     text_color=ERROR_RED)
 
     def _validate(self) -> bool:
         path = self.path_var.get()
         if not path:
-            messagebox.showerror("Erro", "Selecione a pasta do Elden Ring.")
+            messagebox.showerror("Errore", "Seleziona la cartella di Elden Ring.")
             return False
         if not os.path.isfile(os.path.join(path, "sd", "sd.bhd")):
-            messagebox.showerror("Erro",
-                                 "sd/sd.bhd nao encontrado.\n"
-                                 "Selecione a pasta Game do Elden Ring.")
+            messagebox.showerror("Errore",
+                                 "sd/sd.bhd non trovato.\n"
+                                 "Seleziona la cartella Game di Elden Ring.")
             return False
         if is_game_running():
-            messagebox.showerror("Erro",
-                                 "Elden Ring esta rodando.\n"
-                                 "Feche o jogo antes de aplicar o patch.")
+            messagebox.showerror("Errore",
+                                 "Elden Ring è in esecuzione.\n"
+                                 "Chiudi il gioco prima di applicare la patch.")
             return False
         return True
 
@@ -1325,54 +1325,54 @@ class PatcherApp(ctk.CTk):
             if blocking:
                 names = "\n".join(f"  • {name}" for _, name in blocking)
                 answer = messagebox.askyesno(
-                    "Programas bloqueando o patch",
-                    f"Os seguintes programas estão abertos e podem impedir o patch:\n\n"
+                    "Programmi che bloccano la patch",
+                    f"I seguenti programmi sono aperti e potrebbero impedire la patch:\n\n"
                     f"{names}\n\n"
-                    "Deseja fechá-los automaticamente agora?",
+                    "Vuoi chiuderli automaticamente adesso?",
                     icon="warning"
                 )
                 if answer:
                     for exe, name in blocking:
-                        self._log(f"Fechando {name}...")
+                        self._log(f"Chiusura di {name}...")
                         _kill_process(exe)
                     import time; time.sleep(2)  # give OS time to release file handles
                 else:
                     self._log(
-                        "Aviso: prosseguindo com programas abertos. "
-                        "Se o patch falhar com erro de permissão, feche o jogo e o Steam manualmente."
+                        "Attenzione: si prosegue con i programmi aperti. "
+                        "Se la patch fallisce per un errore di permessi, chiudi manualmente il gioco e Steam."
                     )
 
             game_dir = self.path_var.get()
             engine = PatchEngine(game_dir, self._log)
 
-            self._set_status("Carregando arquivos do jogo...")
-            self._set_progress(0, "Carregando BHD...")
+            self._set_status("Caricamento dei file di gioco...")
+            self._set_progress(0, "Caricamento BHD...")
             engine.load_archives()
 
-            self._set_status("Procurando dados de patch...")
+            self._set_status("Ricerca dei dati di patch...")
             patch_dir = self._get_or_download_patches()
             if not patch_dir:
-                self._set_status("Erro ao obter dados de patch")
+                self._set_status("Errore nell'ottenere i dati di patch")
                 self.after(0, self._show_install_error)
                 return
 
-            self._set_status("Procurando arquivos de audio...")
-            self._set_progress(0, "Escaneando...")
+            self._set_status("Ricerca dei file audio...")
+            self._set_progress(0, "Scansione in corso...")
             replacements = engine.scan_replacements(patch_dir)
-            self._log(f"Encontrados {len(replacements)} arquivos para substituir")
+            self._log(f"Trovati {len(replacements)} file da sostituire")
 
             if not replacements:
-                self._set_status("Nenhum arquivo de audio encontrado!")
+                self._set_status("Nessun file audio trovato!")
                 self.after(0, self._show_install_error)
                 return
 
-            self._set_status("Criando backup do sd.bdt...")
+            self._set_status("Creazione del backup di sd.bdt...")
             self._set_progress(0, "Backup...")
             if not engine.create_backup():
-                self._set_status("Erro ao criar backup!")
+                self._set_status("Errore durante la creazione del backup!")
                 return
 
-            self._set_status("Aplicando dublagem...")
+            self._set_status("Applicazione del doppiaggio...")
 
             def on_progress(done, total_):
                 pct = (done / total_) * 100
@@ -1383,20 +1383,20 @@ class PatcherApp(ctk.CTk):
             self._install_fail_count = failed
 
             self._set_progress(100, "100%")
-            self._log(f"\nPronto! {success} arquivos aplicados.")
+            self._log(f"\nFatto! {success} file applicati.")
             if failed > 0:
-                self._log(f"  {failed} erros (veja log acima)")
+                self._log(f"  {failed} errori (vedi il log sopra)")
 
             # Copy movie files if present
             movies_copied = self._install_movies(game_dir)
 
             # Move to done page
             def _go_done():
-                detail = f"{success} arquivos dublados aplicados com sucesso."
+                detail = f"{success} file doppiati applicati con successo."
                 if failed > 0:
-                    detail += f"\n{failed} arquivos com erro."
+                    detail += f"\n{failed} file con errori."
                 if movies_copied > 0:
-                    detail += f"\n{movies_copied} cutscenes dubladas instaladas."
+                    detail += f"\n{movies_copied} cutscene doppiate installate."
                 self.done_detail_label.configure(text=detail)
                 self._show_page(STEP_DONE)
                 webbrowser.open(KOFI_URL)
@@ -1404,40 +1404,65 @@ class PatcherApp(ctk.CTk):
 
         except PermissionError as ex:
             msg = str(ex)
-            self._set_status("Erro de permissão — execute como Administrador")
-            self._log(f"\nERRO DE PERMISSÃO:\n{msg}")
+            self._set_status("Errore di permessi — esegui come Amministratore")
+            self._log(f"\nERRORE DI PERMESSI:\n{msg}")
             self.after(0, lambda: messagebox.showerror(
-                "Sem Permissão",
-                f"{msg}\n\nDica rápida: clique com o botão direito no patcher e escolha\n"
-                "\"Executar como administrador\"."
+                "Permesso Negato",
+                f"{msg}\n\nSuggerimento rapido: clicca con il tasto destro sul patcher e scegli\n"
+                "\"Esegui come amministratore\"."
             ))
             self.after(0, self._show_install_error)
         except Exception as ex:
-            self._set_status(f"Erro: {ex}")
-            self._log(f"\nERRO: {ex}")
+            self._set_status(f"Errore: {ex}")
+            self._log(f"\nERRORE: {ex}")
             self.after(0, self._show_install_error)
 
     def _get_or_download_patches(self) -> Optional[str]:
-        """Get patch data directory. First check local, then download."""
-        local_paths = [
-            os.path.join(_get_exe_dir(), "patch_data"),
-            os.path.join(os.path.dirname(__file__), "patch_data"),
-            os.path.join(os.path.expanduser("~"), ".elden_ring_ptbr", "patch_data"),
+        """Get patch data directory. Checks local dir, then local zip, then download."""
+        search_dirs = [
+            _get_exe_dir(),
+            os.path.dirname(__file__),
+            os.path.join(os.path.expanduser("~"), ".elden_ring_ptbr"),
         ]
-        for p in local_paths:
+
+        for d in search_dirs:
+            p = os.path.join(d, "patch_data")
             if os.path.isdir(p):
                 wem_count = sum(1 for _, _, files in os.walk(p)
                                 for f in files if f.endswith('.wem'))
                 if wem_count > 100:
-                    self._log(f"Usando dados locais: {p} ({wem_count} arquivos)")
+                    self._log(f"Uso dei dati locali: {p} ({wem_count} file)")
                     return p
 
-        self._log("Dados locais nao encontrados. Baixando do servidor...")
-        self._set_status("Baixando dados de dublagem...")
+        for d in search_dirs:
+            if not os.path.isdir(d):
+                continue
+            for fname in sorted(os.listdir(d)):
+                if 'patch_data' not in fname.lower() or not fname.lower().endswith('.zip'):
+                    continue
+                zip_path = os.path.join(d, fname)
+                self._log(f"Zip di dati trovato localmente: {zip_path}")
+                self._set_status("Estrazione dati locali...")
+                cache_dir = os.path.join(os.path.expanduser("~"), ".elden_ring_ptbr")
+                os.makedirs(cache_dir, exist_ok=True)
+                extract_dir = os.path.join(cache_dir, "patch_data")
+                if os.path.exists(extract_dir):
+                    shutil.rmtree(extract_dir)
+                with zipfile.ZipFile(zip_path, 'r') as zf:
+                    zf.extractall(extract_dir)
+                wem_count = sum(1 for _, _, files in os.walk(extract_dir)
+                                for f in files if f.endswith('.wem'))
+                if wem_count > 100:
+                    self._log(f"Estratto da: {zip_path} ({wem_count} file)")
+                    return extract_dir
+                self._log(f"Attenzione: {zip_path} non contiene dati validi, ignorato.")
+
+        self._log("Dati locali non trovati. Download dal server in corso...")
+        self._set_status("Download dei dati di doppiaggio...")
 
         release = get_latest_release(GITHUB_REPO)
         if not release:
-            self._log("Erro: nao foi possivel conectar ao servidor.")
+            self._log("Errore: impossibile connettersi al server.")
             return None
 
         zip_url = None
@@ -1447,7 +1472,7 @@ class PatcherApp(ctk.CTk):
                 break
 
         if not zip_url:
-            self._log("Erro: arquivo de patch nao encontrado no release.")
+            self._log("Errore: file di patch non trovato nella release.")
             return None
 
         cache_dir = os.path.join(os.path.expanduser("~"), ".elden_ring_ptbr")
@@ -1459,15 +1484,15 @@ class PatcherApp(ctk.CTk):
                 pct = (downloaded / total) * 100
                 mb_done = downloaded / (1024 * 1024)
                 mb_total = total / (1024 * 1024)
-                self._set_progress(pct, f"Baixando: {mb_done:.0f}/{mb_total:.0f} MB")
+                self._set_progress(pct, f"Download: {mb_done:.0f}/{mb_total:.0f} MB")
 
-        self._log(f"Baixando: {zip_url}")
+        self._log(f"Download: {zip_url}")
         if not download_file(zip_url, zip_path, on_dl_progress):
-            self._log("Erro no download!")
+            self._log("Errore durante il download!")
             return None
 
-        self._set_status("Extraindo arquivos...")
-        self._set_progress(0, "Extraindo...")
+        self._set_status("Estrazione dei file...")
+        self._set_progress(0, "Estrazione...")
         extract_dir = os.path.join(cache_dir, "patch_data")
         if os.path.exists(extract_dir):
             shutil.rmtree(extract_dir)
@@ -1475,7 +1500,7 @@ class PatcherApp(ctk.CTk):
         with zipfile.ZipFile(zip_path, 'r') as zf:
             zf.extractall(extract_dir)
 
-        self._log(f"Extraido para: {extract_dir}")
+        self._log(f"Estratto in: {extract_dir}")
         return extract_dir
 
     @staticmethod
@@ -1516,8 +1541,8 @@ class PatcherApp(ctk.CTk):
             if not bk2_files:
                 continue
 
-            self._log(f"\nInstalando cutscenes: {folder_name}/")
-            self._set_status(f"Copiando cutscenes ({folder_name})...")
+            self._log(f"\nInstallazione cutscene: {folder_name}/")
+            self._set_status(f"Copia cutscene ({folder_name})...")
 
             for fname in bk2_files:
                 src_file = os.path.join(src, fname)
@@ -1530,19 +1555,19 @@ class PatcherApp(ctk.CTk):
                         self._log(f"  Backup: {fname} -> {fname}.original")
                         self._copy_file_retry(dest_file, backup_file)
 
-                    self._log(f"  Copiando: {fname} ({os.path.getsize(src_file)/(1024*1024):.0f} MB)")
+                    self._log(f"  Copia: {fname} ({os.path.getsize(src_file)/(1024*1024):.0f} MB)")
                     self._copy_file_retry(src_file, dest_file)
                     copied += 1
                 except (PermissionError, OSError) as ex:
-                    self._log(f"  AVISO: {fname} travado por outro processo, pulando. "
-                              f"Feche o Steam/jogo e tente novamente.")
+                    self._log(f"  ATTENZIONE: {fname} bloccato da un altro processo, saltato. "
+                              f"Chiudi Steam/il gioco e riprova.")
                     skipped += 1
 
         if copied > 0:
-            self._log(f"{copied} cutscenes instaladas com sucesso.")
+            self._log(f"{copied} cutscene installate con successo.")
         if skipped > 0:
-            self._log(f"{skipped} cutscenes nao puderam ser copiadas (arquivo em uso).")
-            self._log("Dica: feche o Steam completamente e tente novamente.")
+            self._log(f"{skipped} cutscene non è stato possibile copiare (file in uso).")
+            self._log("Suggerimento: chiudi completamente Steam e riprova.")
         return copied
 
     def _show_install_error(self):
@@ -1551,7 +1576,7 @@ class PatcherApp(ctk.CTk):
             state="normal", text_color=TEXT_SECONDARY,
             command=lambda: self._show_page(STEP_PATH))
         self.btn_next.configure(
-            text="Tentar novamente", state="normal",
+            text="Riprova", state="normal",
             fg_color=ACCENT_GOLD, command=self._retry_install)
 
     def _retry_install(self):
@@ -1561,9 +1586,9 @@ class PatcherApp(ctk.CTk):
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
-        self.install_status_label.configure(text="Preparando...")
+        self.install_status_label.configure(text="Preparazione...")
         self.btn_back.configure(state="disabled", text_color=TEXT_MUTED)
-        self.btn_next.configure(text="Aguarde...", state="disabled",
+        self.btn_next.configure(text="Attendere...", state="disabled",
                                 fg_color=ACCENT_GOLD_DIM)
         threading.Thread(target=self._install_worker, daemon=True).start()
 
@@ -1599,17 +1624,17 @@ class PatcherApp(ctk.CTk):
             if restored_bdt or movies_restored > 0:
                 msg = ""
                 if restored_bdt:
-                    msg += "sd.bdt original restaurado com sucesso!"
+                    msg += "sd.bdt originale ripristinato con successo!"
                 if movies_restored > 0:
-                    msg += f"\n{movies_restored} cutscenes originais restauradas."
-                self.after(0, lambda: messagebox.showinfo("Sucesso", msg.strip()))
+                    msg += f"\n{movies_restored} cutscene originali ripristinate."
+                self.after(0, lambda: messagebox.showinfo("Successo", msg.strip()))
             else:
                 self.after(0, lambda: messagebox.showerror(
-                    "Erro",
-                    "Backup nao encontrado (sd.bdt.original).\n"
-                    "A dublagem nunca foi instalada neste PC."))
+                    "Errore",
+                    "Backup non trovato (sd.bdt.original).\n"
+                    "Il doppiaggio non è mai stato installato su questo PC."))
         except Exception as ex:
-            self.after(0, lambda: messagebox.showerror("Erro", str(ex)))
+            self.after(0, lambda: messagebox.showerror("Errore", str(ex)))
         finally:
             self.after(0, lambda: self.restore_btn.configure(state="normal"))
 
@@ -1644,13 +1669,13 @@ class PatcherApp(ctk.CTk):
                 inner.pack(fill="x", padx=12, pady=8)
                 self._update_label = ctk.CTkLabel(
                     inner,
-                    text=f"Nova versao disponivel: v{latest}  (atual: v{PATCHER_VERSION})",
+                    text=f"Nuova versione disponibile: v{latest}  (attuale: v{PATCHER_VERSION})",
                     font=ctk.CTkFont("Segoe UI", 12),
                     text_color=SUCCESS_GREEN, anchor="w"
                 )
                 self._update_label.pack(side="left")
                 self._update_btn = ctk.CTkButton(
-                    inner, text="Atualizar",
+                    inner, text="Aggiorna",
                     font=ctk.CTkFont("Segoe UI", 11, "bold"),
                     fg_color=SUCCESS_GREEN, hover_color="#0ee090",
                     text_color="#0a0a0f", width=80, height=28,
@@ -1665,11 +1690,11 @@ class PatcherApp(ctk.CTk):
     def _do_self_update(self, exe_url: str, version: str):
         """Download new exe and replace the current one via a temp batch script."""
         if not exe_url:
-            messagebox.showerror("Erro", "URL do executavel nao encontrada no release.")
+            messagebox.showerror("Errore", "URL dell'eseguibile non trovata nella release.")
             return
 
-        self._update_btn.configure(state="disabled", text="Baixando...")
-        self._update_label.configure(text="Baixando atualizacao...")
+        self._update_btn.configure(state="disabled", text="Download in corso...")
+        self._update_label.configure(text="Download dell'aggiornamento...")
 
         def _worker():
             try:
@@ -1678,9 +1703,9 @@ class PatcherApp(ctk.CTk):
                 if not current_exe.endswith('.exe'):
                     self.after(0, lambda: messagebox.showinfo(
                         "Dev Mode",
-                        "Self-update so funciona no .exe compilado."))
+                        "L'auto-aggiornamento funziona solo nell'.exe compilato."))
                     self.after(0, lambda: self._update_btn.configure(
-                        state="normal", text="Atualizar"))
+                        state="normal", text="Aggiorna"))
                     return
 
                 # Download to temp file next to current exe
@@ -1691,14 +1716,14 @@ class PatcherApp(ctk.CTk):
                     if total > 0:
                         pct = int(downloaded / total * 100)
                         self.after(0, lambda p=pct: self._update_label.configure(
-                            text=f"Baixando atualizacao... {p}%"))
+                            text=f"Download dell'aggiornamento... {p}%"))
 
                 ok = download_file(exe_url, tmp_exe, callback=_progress)
                 if not ok or not os.path.isfile(tmp_exe):
                     self.after(0, lambda: messagebox.showerror(
-                        "Erro", "Falha ao baixar atualizacao."))
+                        "Errore", "Impossibile scaricare l'aggiornamento."))
                     self.after(0, lambda: self._update_btn.configure(
-                        state="normal", text="Atualizar"))
+                        state="normal", text="Aggiorna"))
                     if os.path.isfile(tmp_exe):
                         os.remove(tmp_exe)
                     return
@@ -1720,7 +1745,7 @@ del "%~f0"
                     f.write(bat_content)
 
                 self.after(0, lambda: self._update_label.configure(
-                    text="Reiniciando..."))
+                    text="Riavvio in corso..."))
 
                 # Launch the batch script hidden and exit
                 startupinfo = subprocess.STARTUPINFO()
@@ -1735,9 +1760,9 @@ del "%~f0"
 
             except Exception as ex:
                 self.after(0, lambda: messagebox.showerror(
-                    "Erro", f"Falha na atualizacao: {ex}"))
+                    "Errore", f"Aggiornamento fallito: {ex}"))
                 self.after(0, lambda: self._update_btn.configure(
-                    state="normal", text="Atualizar"))
+                    state="normal", text="Aggiorna"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -1751,10 +1776,10 @@ if __name__ == "__main__":
     # This is safe for compiled .exe — triggers the standard UAC dialog.
     if sys.platform == "win32" and not _is_admin():
         answer = messagebox.askyesno(
-            "Permissão necessária",
-            "O patcher precisa de permissão de Administrador para modificar os arquivos do jogo.\n\n"
-            "Deseja reiniciar como Administrador agora?\n"
-            "(O Windows mostrará uma janela de confirmação de segurança)"
+            "Permesso necessario",
+            "Il patcher richiede i permessi di Amministratore per modificare i file del gioco.\n\n"
+            "Vuoi riavviare come Amministratore adesso?\n"
+            "(Windows mostrerà una finestra di conferma di sicurezza)"
         )
         if answer:
             _relaunch_as_admin()
