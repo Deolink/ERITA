@@ -1,6 +1,8 @@
-# ERPT-BR — Elden Ring Dublagem PT-BR
+# ERITA — Elden Ring Dublagem ITA
 
-Patcher per applicare il doppiaggio in Portoghese Brasiliano a Elden Ring (PC).
+Patcher per applicare il doppiaggio in Italiano a Elden Ring (PC).
+
+Fork di [ERPT-BR](https://github.com/lorepamplona/ERPT-BR) di [@lorepamplona](https://github.com/lorepamplona), adattato per il doppiaggio italiano da [@Deolink](https://github.com/Deolink).
 
 **Download:** [Nexus Mods](https://www.nexusmods.com/eldenring/mods/4295)
 
@@ -35,6 +37,7 @@ Firma del codice gratuita fornita da [SignPath.io](https://signpath.io), certifi
 | Ruolo | Membro |
 |-------|--------|
 | Author / Approver | [@lorepamplona](https://github.com/lorepamplona) |
+| Fork Maintainer | [@Deolink](https://github.com/Deolink) |
 
 ### Processo
 

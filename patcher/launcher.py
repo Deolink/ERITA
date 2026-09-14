@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Elden Ring - Dublagem PT-BR
+Elden Ring - Doppiaggio ITA
 Launcher minimalista: baixa o patcher mais recente do GitHub e executa.
 
 Este arquivo é buildado UMA VEZ como EldenRing_Dublagem_PTBR.exe.
@@ -55,7 +55,7 @@ def _make_splash() -> tk.Tk:
     root.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
     tk.Label(
         root,
-        text="⚔  Elden Ring Dublagem PT-BR",
+        text="⚔  Elden Ring Doppiaggio ITA",
         bg="#0a0a0f", fg="#c8aa6e",
         font=("Segoe UI", 13, "bold"),
     ).pack(expand=True)
@@ -94,7 +94,7 @@ def _fatal(msg: str):
     root = tk.Tk()
     root.withdraw()
     from tkinter import messagebox
-    messagebox.showerror("Elden Ring PT-BR", msg)
+    messagebox.showerror("Elden Ring ITA", msg)
     root.destroy()
 
 # ── Entry point ───────────────────────────────────────────────────────────────

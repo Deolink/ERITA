@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Elden Ring - Dublagem PT-BR Patcher
-Aplica a dublagem em português brasileiro diretamente no sd.bdt.
-Sem DLL, sem ModEngine — funciona online.
+Elden Ring - Doppiaggio ITA Patcher
+Applica il doppiaggio italiano direttamente al sd.bdt.
+Senza DLL, senza ModEngine — funziona online.
 """
 import os
 import sys
@@ -106,7 +106,7 @@ PATCHER_VERSION = "0.8.4"
 GITHUB_REPO = "lorepamplona/ERPT-BR"
 KOFI_URL = "https://ko-fi.com/yelore"
 STEAM_APP_ID = 1245620
-APP_NAME = "Elden Ring - Doppiaggio PT-BR"
+APP_NAME = "Elden Ring - Doppiaggio ITA"
 
 
 def _get_exe_dir() -> str:
@@ -829,7 +829,7 @@ class PatcherApp(ctk.CTk):
             text_color=TEXT_MUTED
         ).pack(pady=(30, 0))
         ctk.CTkLabel(
-            self.sidebar, text="Doppiaggio PT-BR",
+            self.sidebar, text="Doppiaggio ITA",
             font=ctk.CTkFont("Segoe UI", 20, "bold"),
             text_color=ACCENT_GOLD
         ).pack(pady=(2, 5))
@@ -935,7 +935,7 @@ class PatcherApp(ctk.CTk):
             page,
             text=(
                 "La procedura guidata applicherà il doppiaggio in\n"
-                "portoghese brasiliano al tuo Elden Ring.\n\n"
+                "italiano al tuo Elden Ring.\n\n"
                 "Cosa verrà fatto:\n"
             ),
             font=ctk.CTkFont("Segoe UI", 13),
@@ -944,7 +944,7 @@ class PatcherApp(ctk.CTk):
 
         # Feature list
         features = [
-            ("Oltre 9.000 dialoghi doppiati in PT-BR", SUCCESS_GREEN),
+            ("Oltre 9.000 dialoghi doppiati in ITA", SUCCESS_GREEN),
             ("Backup automatico del file originale", SUCCESS_GREEN),
             ("Funziona online - nessun rischio di ban", SUCCESS_GREEN),
             ("Ripristino con un click se vuoi tornare indietro", SUCCESS_GREEN),
@@ -1135,7 +1135,7 @@ class PatcherApp(ctk.CTk):
 
         ctk.CTkLabel(
             center,
-            text="Avvia Elden Ring normalmente e goditi\nil doppiaggio in portoghese!",
+            text="Avvia Elden Ring normalmente e goditi\nil doppiaggio in italiano!",
             font=ctk.CTkFont("Segoe UI", 13),
             text_color=TEXT_SECONDARY, justify="center"
         ).pack(pady=(0, 20))
