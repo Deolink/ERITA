@@ -401,7 +401,7 @@ class DirectoryValidationTests(unittest.TestCase):
 class DownloadAndDiscoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(self.temp_dir.name).resolve()
         source = self.root / "source.zip"
         self.archive_bytes = write_zip(
             source,

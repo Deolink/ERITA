@@ -37,8 +37,9 @@
 
 ## Integridade de release
 
-Cada release source desta nova linha inclui `SHA256SUMS.txt` e um atestado de
-proveniência gerado pelo GitHub Actions. Para verificar um artefato com a CLI do GitHub:
+Cada release source desta nova linha publica um único ZIP próprio. O GitHub
+registra o digest SHA-256 do asset e gera um atestado de proveniência pelo GitHub
+Actions. Para verificar um artefato com a CLI do GitHub:
 
 ```text
 gh attestation verify ERPT-BR-v0.9.1-source-win64.zip --repo lorepamplona/ERPT-BR

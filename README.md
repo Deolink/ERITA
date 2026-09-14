@@ -170,8 +170,9 @@ python -m unittest discover -s tests -v
 
 O CI rejeita a volta do launcher dinâmico, de `exec(compile(...))`, de
 `taskkill` e de builds PyInstaller/Nuitka. Releases são montados por lista
-permitida, recebem `SHA256SUMS.txt` e atestado de proveniência do GitHub. Enquanto
-o smoke test real estiver pendente, o workflow publica a versão como pre-release.
+permitida e publicam um único ZIP próprio, com digest SHA-256 e atestado de
+proveniência registrados pelo GitHub. Enquanto o smoke test real estiver
+pendente, o workflow publica a versão como pre-release.
 
 Relatos e código: [GitHub](https://github.com/lorepamplona/ERPT-BR)
 

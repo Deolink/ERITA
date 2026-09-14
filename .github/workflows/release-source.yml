@@ -102,7 +102,7 @@ jobs:
           python tools/verify_source_release.py $archive
           $item = Get-Item $archive
           $hash = (Get-FileHash -Algorithm SHA256 $item.FullName).Hash.ToLowerInvariant()
-          "$hash  $($item.Name)" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          "SHA-256: ``$hash``" | Add-Content -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       - name: Smoke test the real source installer
         shell: pwsh
@@ -132,9 +132,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: erpt-br-source-release
-          path: |
-            dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip
-            dist/SHA256SUMS.txt
+          path: dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -161,9 +159,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           archive="dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip"
-          sums="dist/SHA256SUMS.txt"
-          test -f "$archive" && test -f "$sums"
-          gh release create "${{ github.ref_name }}" "$archive" "$sums" \
+          test -f "$archive"
+          gh release create "${{ github.ref_name }}" "$archive" \
             --repo "${{ github.repository }}" \
             --verify-tag \
             --generate-notes \

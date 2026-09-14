@@ -423,7 +423,7 @@ class PatchEngineTests(unittest.TestCase):
 
     def test_alias_changed_during_collision_check_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             game_dir = root / "Game"
             sd_dir = game_dir / "sd"
             sd_dir.mkdir(parents=True)
@@ -1027,7 +1027,7 @@ class PatchEngineTests(unittest.TestCase):
 
     def test_recover_pending_never_publishes_a_swapped_rollback(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             patcher, game_dir, originals, _offset, _size = (
                 self._make_engine_with_two_archives(root)
             )
@@ -1294,7 +1294,7 @@ class PatchEngineTests(unittest.TestCase):
 
     def test_external_change_after_first_publish_prevents_success(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             patcher, game_dir, originals, _offset, _size = (
                 self._make_engine_with_two_archives(root)
             )
@@ -1470,7 +1470,7 @@ class PatchEngineTests(unittest.TestCase):
             pass
 
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             patcher, game_dir, originals, _offset, _size = (
                 self._make_engine_with_two_archives(root)
             )
