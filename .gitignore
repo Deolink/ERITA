@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+.localdata/
+release/
+patch_data/
+patch_data.zip
+patch_data_v*.zip
+*.part
