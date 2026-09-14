@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -9,6 +10,26 @@ from patcher import patcher_gui
 
 
 class GuiIntegrationTests(unittest.TestCase):
+    @staticmethod
+    def _diagnostic_state_stub() -> patcher_gui.PatcherApp:
+        app = object.__new__(patcher_gui.PatcherApp)
+        app._diagnostic_lock = threading.Lock()
+        app._diagnostic_operation = "install"
+        app._diagnostic_stage = "steam_build"
+        app._diagnostic_stage_started = 10.0
+        app._diagnostic_stage_elapsed = None
+        app._diagnostic_write_state = "not_started"
+        app._diagnostic_progress = (0, 0)
+        app._detected_build_id = "11111111"
+        app._build_read_status = "identified"
+        app._detected_build_path_key = None
+        app._last_error_code = None
+        app._last_error_kind = None
+        app._last_error_message = None
+        app._log_history = []
+        app._diagnostic_status = "Identificando"
+        return app
+
     def test_authenticated_plan_covers_alias_not_selected_for_writing(self) -> None:
         selected = mock.Mock()
         selected.replacement.source_relative = "enus/voice.bnk"
@@ -42,6 +63,40 @@ class GuiIntegrationTests(unittest.TestCase):
             },
         )
 
+    def test_close_is_safe_while_diagnostic_collection_finishes(self) -> None:
+        app = object.__new__(patcher_gui.PatcherApp)
+        app._busy = False
+        app._report_collecting = 1
+        app._closing = False
+        app.destroy = mock.Mock()
+
+        patcher_gui.PatcherApp._on_close(app)
+
+        self.assertTrue(app._closing)
+        app.destroy.assert_called_once_with()
+
+    def test_ui_discards_callbacks_after_window_starts_closing(self) -> None:
+        app = object.__new__(patcher_gui.PatcherApp)
+        app._closing = True
+        app.after = mock.Mock()
+
+        patcher_gui.PatcherApp._ui(app, mock.Mock())
+
+        app.after.assert_not_called()
+
+    def test_ui_discards_an_already_queued_callback_after_close(self) -> None:
+        app = object.__new__(patcher_gui.PatcherApp)
+        app._closing = False
+        queued: list[object] = []
+        app.after = lambda _delay, callback: queued.append(callback)
+        callback = mock.Mock()
+
+        patcher_gui.PatcherApp._ui(app, callback)
+        app._closing = True
+        queued[0]()
+
+        callback.assert_not_called()
+
     def test_reads_and_requires_the_pinned_steam_build(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             steamapps = Path(temporary) / "steamapps"
@@ -65,9 +120,149 @@ class GuiIntegrationTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(
-                patcher_gui.CompatibilityError, "Nenhum arquivo foi alterado"
-            ):
+                patcher_gui.UnsupportedBuildError,
+                r"ERPT-COMPAT-001[\s\S]*Nenhum arquivo foi alterado",
+            ) as raised:
                 patcher_gui.require_supported_build(game)
+
+            self.assertEqual(raised.exception.code, "ERPT-COMPAT-001")
+            self.assertEqual(raised.exception.build_info.build_id, "99999999")
+            self.assertEqual(raised.exception.build_info.status, "identified")
+
+    def test_missing_manifest_has_an_explicit_detection_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            game = (
+                Path(temporary)
+                / "steamapps"
+                / "common"
+                / "ELDEN RING"
+                / "Game"
+            )
+            game.mkdir(parents=True)
+
+            info = patcher_gui.steam_build_info(game)
+
+            self.assertIsNone(info.build_id)
+            self.assertEqual(info.status, "manifest_missing")
+            with self.assertRaisesRegex(
+                patcher_gui.UnsupportedBuildError,
+                "manifesto Steam nao encontrado",
+            ):
+                patcher_gui.require_supported_build(game, info)
+
+    def test_install_worker_rejects_build_before_creating_engine(self) -> None:
+        app = mock.Mock()
+        build_error = patcher_gui.UnsupportedBuildError(
+            patcher_gui.SteamBuildInfo("11111111", "identified"),
+            before_game_writes=True,
+        )
+        app._validated_context.side_effect = build_error
+
+        with mock.patch.object(patcher_gui, "PatchEngine") as engine_class:
+            patcher_gui.PatcherApp._install_worker(app, "selected-game")
+
+        engine_class.assert_not_called()
+        app._report_failure.assert_called_once()
+        self.assertIs(app._report_failure.call_args.kwargs["exc"], build_error)
+
+    def test_precommit_build_change_does_not_claim_no_files_changed(self) -> None:
+        error = patcher_gui.UnsupportedBuildError(
+            patcher_gui.SteamBuildInfo("11111111", "identified"),
+            before_game_writes=False,
+        )
+
+        self.assertNotIn("Nenhum arquivo foi alterado", str(error))
+        self.assertIn("revalidacao de seguranca", str(error))
+
+    def test_error_freezes_stage_elapsed_time_for_later_report(self) -> None:
+        app = self._diagnostic_state_stub()
+        with mock.patch.object(
+            patcher_gui.time, "monotonic", return_value=15.9
+        ):
+            patcher_gui.PatcherApp._record_error(app, ValueError("falha"))
+
+        with mock.patch.object(
+            patcher_gui,
+            "build_diagnostic_report",
+            return_value="{}\n",
+        ) as build_report:
+            patcher_gui.PatcherApp._diagnostic_report(app, "")
+
+        self.assertEqual(
+            build_report.call_args.kwargs["stage_elapsed_seconds"], 5
+        )
+
+    def test_manual_report_does_not_reread_manifest_or_reuse_another_path(self) -> None:
+        app = self._diagnostic_state_stub()
+        app._last_error_code = "ERPT-INSTALL-001"
+        app._detected_build_path_key = patcher_gui.PatcherApp._diagnostic_path_key(
+            "original-game"
+        )
+        with mock.patch.object(
+            patcher_gui,
+            "steam_build_info",
+        ) as read_manifest:
+            snapshot = patcher_gui.PatcherApp._diagnostic_snapshot(app, "other-game")
+
+        read_manifest.assert_not_called()
+        self.assertIsNone(snapshot["detected_build_id"])
+        self.assertEqual(snapshot["build_status"], "not_checked")
+
+    def test_manual_report_keeps_build_already_read_for_the_same_path(self) -> None:
+        app = self._diagnostic_state_stub()
+        app._detected_build_path_key = patcher_gui.PatcherApp._diagnostic_path_key(
+            "selected-game"
+        )
+
+        snapshot = patcher_gui.PatcherApp._diagnostic_snapshot(
+            app, r".\selected-game"
+        )
+
+        self.assertEqual(snapshot["detected_build_id"], "11111111")
+        self.assertEqual(snapshot["build_status"], "identified")
+
+    def test_failure_schedules_dialog_before_collecting_diagnostic(self) -> None:
+        app = self._diagnostic_state_stub()
+        app._status = mock.Mock()
+        app._log = mock.Mock()
+        scheduled: list[object] = []
+        app._ui = scheduled.append
+
+        with mock.patch.object(patcher_gui, "build_diagnostic_report") as build:
+            patcher_gui.PatcherApp._report_failure(
+                app,
+                title="Falha",
+                exc=ValueError("erro"),
+                selected_path="",
+                status_message="Cancelada",
+            )
+
+        build.assert_not_called()
+        self.assertEqual(len(scheduled), 1)
+        with app._diagnostic_lock:
+            app._diagnostic_stage = "new_attempt"
+            app._last_error_code = None
+            app._detected_build_id = "22222222"
+        app._show_failure_dialog = mock.Mock()
+        scheduled[0]()  # type: ignore[operator]
+        snapshot = app._show_failure_dialog.call_args.args[2]
+        self.assertEqual(snapshot["stage"], "steam_build")
+        self.assertEqual(snapshot["error_code"], "ERPT-DATA-001")
+        self.assertEqual(snapshot["detected_build_id"], "11111111")
+
+    def test_diagnostic_button_remains_available_while_install_is_busy(self) -> None:
+        app = object.__new__(patcher_gui.PatcherApp)
+        app._busy = False
+        app.install_button = mock.Mock()
+        app.restore_button = mock.Mock()
+        app.browse_button = mock.Mock()
+        app.path_entry = mock.Mock()
+        app.report_button = mock.Mock()
+
+        patcher_gui.PatcherApp._set_busy(app, True)
+
+        self.assertTrue(app._busy)
+        app.report_button.configure.assert_not_called()
 
     def test_optional_movie_payload_is_detected_before_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

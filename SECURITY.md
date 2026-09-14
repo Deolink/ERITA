@@ -42,7 +42,7 @@ registra o digest SHA-256 do asset e gera um atestado de proveniência pelo GitH
 Actions. Para verificar um artefato com a CLI do GitHub:
 
 ```text
-gh attestation verify ERPT-BR-v0.9.1-source-win64.zip --repo lorepamplona/ERPT-BR
+gh attestation verify ERPT-BR-v0.9.2-source-win64.zip --repo lorepamplona/ERPT-BR
 ```
 
 O workflow usa dependências travadas por SHA de commit e nunca sobrescreve um
@@ -55,16 +55,27 @@ jogo; o instalador não tenta substituir as proteções da conta ou do sistema.
 
 ## Dados locais
 
-O programa não coleta telemetria nem envia arquivos do usuário. O patcher acessa
-a rede somente quando precisa baixar o payload de áudio fixado. O bootstrap de
-um clique também pode acessar WinGet ou `python.org` para instalar o Python
-oficial, conforme descrito acima. Backups de áudio, ambientes isolados e cache
-ficam no perfil local do usuário.
+O programa não coleta telemetria nem envia arquivos do usuário. Em segundo plano,
+o patcher acessa a rede somente quando precisa baixar o payload de áudio fixado.
+O bootstrap de um clique também pode acessar WinGet ou `python.org` para instalar
+o Python oficial, conforme descrito acima. Os botões **Projeto** e **Abrir chamado**
+só pedem ao navegador padrão que abra o GitHub depois de um clique explícito; o
+relatório não é anexado à URL. Backups de áudio, ambientes isolados e cache ficam
+no perfil local do usuário.
 Árvores de cache abandonadas são preservadas com nomes `.extract-*`/`.old-*`;
 o programa não tenta exclusão recursiva por um caminho que possa ter sido trocado
 por junction. A interface registra o caminho exato para limpeza manual posterior.
 Pastas de staging de backups interrompidos seguem a mesma regra: são preservadas
 e reportadas, nunca removidas recursivamente de forma automática.
+
+O diagnóstico de suporte é processado localmente; somente o compartilhamento é
+opcional. Ele usa uma lista fechada de campos e remove padrões conhecidos de
+caminhos, identidades, e-mails, SteamID e segredos dos textos. Para evitar que
+uma troca concorrente de junction faça o diagnóstico acessar outro destino, o
+relatório não abre, enumera nem calcula hash dos arquivos do jogo. O botão
+**Abrir chamado** copia o relatório e abre um formulário
+público no GitHub, mas nunca faz upload ou publicação automática. O usuário deve
+revisar e enviar o conteúdo manualmente.
 
 ## Reportar vulnerabilidade
 

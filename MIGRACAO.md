@@ -34,6 +34,6 @@ Use a mesma conta do Windows para instalar e restaurar. Antes de mover ou renome
 a biblioteca Steam, restaure o áudio original; se ela já foi movida com a dublagem
 aplicada, faça uma nova verificação de integridade pela Steam.
 
-As cutscenes opcionais não são instaladas pela candidata 0.9.1, pois o pacote
+As cutscenes opcionais não são instaladas pela candidata 0.9.2, pois o pacote
 antigo ainda não tem manifesto criptográfico público. Não copie pastas `movie`
 ou `movie_dlc` para o novo instalador.

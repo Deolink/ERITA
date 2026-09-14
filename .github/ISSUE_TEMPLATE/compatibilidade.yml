@@ -1,0 +1,124 @@
+name: "Erro de compatibilidade ou instalação travada"
+description: "Avise quando o instalador não reconhecer sua versão do jogo, parar de avançar ou falhar."
+title: "[Compatibilidade]: "
+labels:
+  - "bug"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por ajudar a melhorar o ERPT-BR.
+
+        Este chamado e tudo que for anexado nele ficarão **públicos**. O instalador não envia dados automaticamente: você decide o que copiar, salvar ou anexar. Antes de publicar, revise o diagnóstico e remova qualquer dado pessoal que encontrar.
+
+  - type: input
+    id: erpt_br_version
+    attributes:
+      label: "Versão do ERPT-BR"
+      description: "Informe a versão mostrada no instalador ou no nome do arquivo baixado."
+      placeholder: "Ex.: 0.9.2"
+    validations:
+      required: true
+
+  - type: input
+    id: game_version
+    attributes:
+      label: "Versão do Elden Ring"
+      description: "Informe a versão exibida no menu principal do jogo."
+      placeholder: "Ex.: 1.17.0"
+    validations:
+      required: true
+
+  - type: input
+    id: steam_build_id
+    attributes:
+      label: "Steam BuildID"
+      description: "Se o instalador mostrou um BuildID, copie o número. Caso contrário, escreva 'não identificado'."
+      placeholder: "Ex.: 25080141 ou não identificado"
+    validations:
+      required: true
+
+  - type: input
+    id: windows_version
+    attributes:
+      label: "Versão do Windows"
+      description: "Pressione Win + R, digite winver e copie a versão mostrada."
+      placeholder: "Ex.: Windows 11 24H2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stopped_stage
+    attributes:
+      label: "Em que etapa parou?"
+      description: "Escolha a opção mais parecida com o que aconteceu."
+      options:
+        - "Detecção da pasta do jogo"
+        - "Validação da versão ou BuildID"
+        - "Carregamento dos arquivos do jogo"
+        - "Análise ou planejamento da instalação"
+        - "Criação do backup"
+        - "Aplicação do patch"
+        - "Verificação final"
+        - "Restauração do backup"
+        - "Não sei ou outra etapa"
+    validations:
+      required: true
+
+  - type: textarea
+    id: last_status
+    attributes:
+      label: "Último status ou mensagem de erro"
+      description: "Copie exatamente a última mensagem exibida pelo instalador."
+      placeholder: "Cole aqui a mensagem completa que apareceu."
+    validations:
+      required: true
+
+  - type: input
+    id: stalled_duration
+    attributes:
+      label: "Quanto tempo ficou sem avançar?"
+      description: "Se houve um erro imediato, escreva 'imediato'."
+      placeholder: "Ex.: 10 minutos ou imediato"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Como reproduzir o problema"
+      description: "Conte, em ordem, o que você fez até o problema aparecer."
+      placeholder: |
+        1. Abri o instalador...
+        2. Selecionei...
+        3. Cliquei em...
+        4. O instalador parou em...
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: "Diagnóstico gerado pelo instalador"
+      description: "Cole o diagnóstico aqui ou arraste o arquivo salvo para esta caixa. Não envie saves nem arquivos do jogo."
+      placeholder: "Cole aqui o diagnóstico ou arraste o arquivo para anexar."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: "Informações adicionais"
+      description: "Opcional: inclua qualquer detalhe que possa ajudar, sem dados pessoais."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy_confirmation
+    attributes:
+      label: "Privacidade"
+      options:
+        - label: "Revisei o diagnóstico e os anexos e removi nomes, caminhos pessoais, e-mails, contas, tokens e outros dados privados."
+          required: true
+        - label: "Entendo que este chamado e seus anexos ficarão públicos no GitHub."
+          required: true

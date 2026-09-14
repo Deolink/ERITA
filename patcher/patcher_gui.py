@@ -35,9 +35,12 @@ import os
 import re
 import subprocess
 import threading
+import time
 import webbrowser
+from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import TclError, filedialog, messagebox
 from typing import Callable
 import customtkinter as ctk
 
@@ -58,6 +61,7 @@ try:  # Suporta ``python -m patcher.patcher_gui`` e execucao direta do arquivo.
         ensure_patch_data,
         validate_patch_directory,
     )
+    from .diagnostics import build_diagnostic_report
 except ImportError:  # pragma: no cover - caminho usado pelo script interno
     from engine import (
         BackupError,
@@ -75,13 +79,17 @@ except ImportError:  # pragma: no cover - caminho usado pelo script interno
         ensure_patch_data,
         validate_patch_directory,
     )
+    from diagnostics import build_diagnostic_report
 
 
-PATCHER_VERSION = "0.9.1"
+PATCHER_VERSION = "0.9.2"
 SUPPORTED_GAME_VERSION = "1.17.1"
 SUPPORTED_STEAM_BUILD_IDS = frozenset({"25080141"})
 STEAM_APP_ID = "1245620"
 PROJECT_URL = "https://github.com/lorepamplona/ERPT-BR"
+COMPATIBILITY_ISSUE_URL = (
+    f"{PROJECT_URL}/issues/new?template=compatibilidade.yml"
+)
 APP_ROOT = Path(__file__).resolve().parent.parent
 MOVIE_FOLDERS = ("movie", "movie_dlc")
 
@@ -100,6 +108,54 @@ BLOCKING_EXECUTABLES = {
     "easyanticheat_launcher.exe": "Easy Anti-Cheat Launcher",
     "easyanticheat_epic.exe": "Easy Anti-Cheat (Epic)",
 }
+
+
+@dataclass(frozen=True)
+class SteamBuildInfo:
+    """Resultado passivo da leitura do appmanifest da biblioteca selecionada."""
+
+    build_id: str | None
+    status: str
+
+
+class UnsupportedBuildError(CompatibilityError):
+    """Versao recusada, preservando se a deteccao precedeu qualquer escrita."""
+
+    code = "ERPT-COMPAT-001"
+
+    def __init__(
+        self, build_info: SteamBuildInfo, *, before_game_writes: bool
+    ) -> None:
+        self.build_info = build_info
+        self.before_game_writes = before_game_writes
+        found = (
+            f"Steam BuildID {build_info.build_id}"
+            if build_info.build_id
+            else {
+                "manifest_missing": "manifesto Steam nao encontrado",
+                "manifest_unreadable": "manifesto Steam sem acesso de leitura",
+                "buildid_missing": "manifesto Steam sem BuildID",
+                "layout_unknown": "pasta fora da estrutura esperada da Steam",
+            }.get(build_info.status, "Steam BuildID nao identificado")
+        )
+        safety_message = (
+            "O patcher parou antes de carregar os arquivos de audio. Nenhum "
+            "arquivo foi alterado."
+            if before_game_writes
+            else "A mudanca foi detectada durante a revalidacao de seguranca. "
+            "A instalacao nao foi confirmada; preserve os backups e verifique os "
+            "arquivos pela Steam antes de abrir o jogo."
+        )
+        super().__init__(
+            f"VERSAO DO JOGO NAO SUPORTADA [{self.code}]\n\n"
+            f"Detectado: {found}.\n"
+            f"Suportado pelo ERPT-BR {PATCHER_VERSION}: Elden Ring "
+            f"{SUPPORTED_GAME_VERSION}, Steam BuildID "
+            f"{', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))}.\n\n"
+            "Esta versao ainda nao possui um perfil compativel. "
+            f"{safety_message} Use 'Copiar "
+            "diagnostico' para nos enviar os dados tecnicos sem informacoes pessoais."
+        )
 
 
 def _steam_roots() -> list[Path]:
@@ -164,33 +220,44 @@ def find_elden_ring() -> Path | None:
     return None
 
 
-def steam_build_id(game_dir: Path) -> str | None:
-    """Le o BuildID do appmanifest pertencente a pasta Steam selecionada."""
+def steam_build_info(game_dir: Path) -> SteamBuildInfo:
+    """Le passivamente o BuildID e preserva o motivo quando ele nao existe."""
+
     try:
         steamapps = game_dir.parents[2]
     except IndexError:
-        return None
+        return SteamBuildInfo(None, "layout_unknown")
     manifest_path = steamapps / f"appmanifest_{STEAM_APP_ID}.acf"
     try:
         content = manifest_path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return SteamBuildInfo(None, "manifest_missing")
     except OSError:
-        return None
+        return SteamBuildInfo(None, "manifest_unreadable")
     match = re.search(r'"buildid"\s+"(\d+)"', content, re.IGNORECASE)
-    return match.group(1) if match else None
+    if not match:
+        return SteamBuildInfo(None, "buildid_missing")
+    return SteamBuildInfo(match.group(1), "identified")
 
 
-def require_supported_build(game_dir: Path) -> str:
-    build_id = steam_build_id(game_dir)
-    if build_id not in SUPPORTED_STEAM_BUILD_IDS:
-        found = build_id or "nao identificado"
-        raise CompatibilityError(
-            "Build fora do alvo desta versao candidata. "
-            f"Alvo esperado: {', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} "
-            f"(patch {SUPPORTED_GAME_VERSION}); encontrado: {found}. "
-            "Atualize o jogo pela Steam ou aguarde uma versao nova do ERPT-BR. "
-            "Nenhum arquivo foi alterado."
+def steam_build_id(game_dir: Path) -> str | None:
+    """Compatibilidade: retorna somente o BuildID, quando identificado."""
+
+    return steam_build_info(game_dir).build_id
+
+
+def require_supported_build(
+    game_dir: Path,
+    build_info: SteamBuildInfo | None = None,
+    *,
+    before_game_writes: bool = True,
+) -> str:
+    info = build_info or steam_build_info(game_dir)
+    if info.build_id not in SUPPORTED_STEAM_BUILD_IDS:
+        raise UnsupportedBuildError(
+            info, before_game_writes=before_game_writes
         )
-    return build_id
+    return info.build_id
 
 
 def running_blockers() -> list[str]:
@@ -319,6 +386,23 @@ class PatcherApp(ctk.CTk):
         self.minsize(760, 600)
         self.configure(fg_color=BG)
         self._busy = False
+        self._closing = False
+        self._report_collecting = 0
+        self._diagnostic_lock = threading.Lock()
+        self._log_history: deque[str] = deque(maxlen=120)
+        self._diagnostic_operation = "idle"
+        self._diagnostic_stage = "ready"
+        self._diagnostic_stage_started = time.monotonic()
+        self._diagnostic_stage_elapsed: int | None = None
+        self._diagnostic_write_state = "not_started"
+        self._diagnostic_progress = (0, 0)
+        self._diagnostic_status = "Pronto para verificar a instalacao."
+        self._detected_build_id: str | None = None
+        self._build_read_status = "not_checked"
+        self._detected_build_path_key: str | None = None
+        self._last_error_code: str | None = None
+        self._last_error_kind: str | None = None
+        self._last_error_message: str | None = None
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         icon = Path(__file__).with_name("patcher.ico")
@@ -336,18 +420,23 @@ class PatcherApp(ctk.CTk):
         self._build_interface()
         detected = find_elden_ring()
         if detected:
+            self._begin_operation("startup_check")
             self.path_var.set(str(detected))
-            build = steam_build_id(detected)
+            build_info = steam_build_info(detected)
+            self._record_build_info(build_info, detected)
             self.build_var.set(
-                f"ERPT-BR {PATCHER_VERSION} | jogo {SUPPORTED_GAME_VERSION} | "
-                f"Steam build {build or 'nao identificado'}"
+                f"ERPT-BR {PATCHER_VERSION} | alvo {SUPPORTED_GAME_VERSION} / "
+                f"build {', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} | detectado: "
+                f"{build_info.build_id or 'nao identificado'}"
             )
             try:
                 pending = self._pending_transactions(detected)
             except (PatcherError, OSError) as exc:
-                self.status_var.set(
-                    "Backups nao puderam ser inspecionados com seguranca."
+                self._set_stage(
+                    "startup_backup_check",
+                    "Backups nao puderam ser inspecionados com seguranca.",
                 )
+                self._record_error(exc)
                 self.after(
                     250,
                     lambda exc=exc: messagebox.showerror(
@@ -359,9 +448,16 @@ class PatcherApp(ctk.CTk):
                 )
                 pending = []
             if pending:
-                self.status_var.set(
-                    "Instalacao anterior interrompida: restaure ou reinstale antes de abrir o jogo."
+                recovery_message = (
+                    "Instalacao anterior interrompida: restaure ou reinstale antes "
+                    "de abrir o jogo."
                 )
+                self._set_stage(
+                    "recovery_required",
+                    recovery_message,
+                    write_state="recovery_required",
+                )
+                self._record_error(BackupError(recovery_message))
                 self.after(
                     250,
                     lambda: messagebox.showwarning(
@@ -370,6 +466,12 @@ class PatcherApp(ctk.CTk):
                         "Nao abra o jogo agora. Use 'Restaurar original' ou conclua "
                         "novamente a instalacao; o backup verificado sera usado.",
                     ),
+                )
+            elif self._last_error_code is None:
+                self._set_stage(
+                    "ready",
+                    "Pronto para verificar a instalacao.",
+                    finished=True,
                 )
 
     def _build_interface(self) -> None:
@@ -468,6 +570,16 @@ class PatcherApp(ctk.CTk):
             command=lambda: webbrowser.open(PROJECT_URL),
         )
         self.project_button.pack(side="left")
+        self.report_button = ctk.CTkButton(
+            action_row,
+            text="Diagnóstico",
+            height=42,
+            width=120,
+            fg_color="#343449",
+            hover_color="#484860",
+            command=self._start_diagnostic_report,
+        )
+        self.report_button.pack(side="left", padx=(8, 0))
 
         progress_card = ctk.CTkFrame(self, fg_color=CARD)
         progress_card.pack(fill="both", expand=True, padx=30, pady=(0, 25))
@@ -505,6 +617,387 @@ class PatcherApp(ctk.CTk):
         if selected:
             self.path_var.set(selected)
 
+    @staticmethod
+    def _diagnostic_path_key(value: str | Path | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            raw = os.fspath(value)
+            if not raw:
+                return None
+            return os.path.normcase(os.path.abspath(raw))
+        except (OSError, TypeError, ValueError):
+            return None
+
+    def _record_build_info(
+        self,
+        info: SteamBuildInfo,
+        game_dir: str | Path | None = None,
+    ) -> None:
+        with self._diagnostic_lock:
+            self._detected_build_id = info.build_id
+            self._build_read_status = info.status
+            if game_dir is not None:
+                self._detected_build_path_key = self._diagnostic_path_key(
+                    game_dir
+                )
+
+    def _begin_operation(self, operation: str) -> None:
+        with self._diagnostic_lock:
+            self._diagnostic_operation = operation
+            self._diagnostic_stage = "starting"
+            self._diagnostic_stage_started = time.monotonic()
+            self._diagnostic_stage_elapsed = None
+            self._diagnostic_write_state = "not_started"
+            self._diagnostic_progress = (0, 0)
+            self._detected_build_id = None
+            self._build_read_status = "not_checked"
+            self._detected_build_path_key = None
+            self._last_error_code = None
+            self._last_error_kind = None
+            self._last_error_message = None
+
+    def _set_stage(
+        self,
+        stage: str,
+        message: str,
+        *,
+        write_state: str | None = None,
+        finished: bool = False,
+    ) -> None:
+        with self._diagnostic_lock:
+            self._diagnostic_stage = stage
+            self._diagnostic_stage_started = time.monotonic()
+            self._diagnostic_stage_elapsed = 0 if finished else None
+            if write_state is not None:
+                self._diagnostic_write_state = write_state
+            self._diagnostic_progress = (0, 0)
+        self._status(message)
+
+    def _record_error(self, exc: BaseException) -> tuple[str, str, str]:
+        if isinstance(exc, UnsupportedBuildError):
+            code = exc.code
+            self._record_build_info(exc.build_info)
+        elif isinstance(exc, PermissionError):
+            code = "ERPT-FS-001"
+        elif isinstance(exc, PatchDataError):
+            code = "ERPT-PAYLOAD-001"
+        elif isinstance(exc, LegacyBackupError):
+            code = "ERPT-BACKUP-002"
+        elif isinstance(exc, BackupError):
+            code = "ERPT-BACKUP-001"
+        elif isinstance(exc, CompatibilityError):
+            code = "ERPT-COMPAT-002"
+        elif isinstance(exc, PatcherError):
+            code = "ERPT-INSTALL-001"
+        elif isinstance(exc, OSError):
+            code = "ERPT-IO-001"
+        elif isinstance(exc, ValueError):
+            code = "ERPT-DATA-001"
+        else:
+            code = "ERPT-INTERNAL-001"
+        kind = type(exc).__name__
+        message = str(exc) or "Falha sem mensagem adicional."
+        with self._diagnostic_lock:
+            if self._diagnostic_stage_elapsed is None:
+                self._diagnostic_stage_elapsed = max(
+                    0, int(time.monotonic() - self._diagnostic_stage_started)
+                )
+            self._last_error_code = code
+            self._last_error_kind = kind
+            self._last_error_message = message
+        return code, kind, message
+
+    def _diagnostic_snapshot(
+        self,
+        selected_path: str | None = None,
+    ) -> dict[str, object]:
+        selected = (
+            selected_path if selected_path is not None else self.path_var.get()
+        ).strip()
+        game_dir = Path(selected) if selected else None
+        selected_path_key = self._diagnostic_path_key(selected)
+        with self._diagnostic_lock:
+            detected_build_id = self._detected_build_id
+            build_status = self._build_read_status
+            detected_build_path_key = self._detected_build_path_key
+            operation = self._diagnostic_operation
+            stage = self._diagnostic_stage
+            elapsed = self._diagnostic_stage_elapsed
+            if elapsed is None:
+                elapsed = max(
+                    0, int(time.monotonic() - self._diagnostic_stage_started)
+                )
+            write_state = self._diagnostic_write_state
+            progress_current, progress_total = self._diagnostic_progress
+            error_code = self._last_error_code
+            error_kind = self._last_error_kind
+            error_message = self._last_error_message
+            log_lines = tuple(self._log_history)
+            status = getattr(self, "_diagnostic_status", "")
+        if selected_path_key != detected_build_path_key:
+            detected_build_id = None
+            build_status = "not_checked"
+        return {
+            "patcher_version": PATCHER_VERSION,
+            "operation": operation,
+            "stage": stage,
+            "status": status,
+            "error_code": error_code,
+            "error_kind": error_kind,
+            "error_message": error_message,
+            "supported_game_version": SUPPORTED_GAME_VERSION,
+            "supported_build_ids": tuple(SUPPORTED_STEAM_BUILD_IDS),
+            "detected_build_id": detected_build_id,
+            "build_status": build_status,
+            "stage_elapsed_seconds": elapsed,
+            "progress_current": progress_current,
+            "progress_total": progress_total,
+            "game_write_state": write_state,
+            "game_dir": game_dir,
+            "log_lines": log_lines,
+        }
+
+    def _diagnostic_report(
+        self,
+        selected_path: str | None = None,
+    ) -> str:
+        snapshot = self._diagnostic_snapshot(selected_path)
+        return build_diagnostic_report(**snapshot)
+
+    def _start_diagnostic_report(self) -> None:
+        if self._report_collecting:
+            return
+        selected_path = self.path_var.get()
+        snapshot = self._diagnostic_snapshot(selected_path)
+        update_dialog = self._show_diagnostic_dialog(
+            "Diagnostico do ERPT-BR",
+            "Revise o relatorio antes de publica-lo.",
+            None,
+        )
+        self._launch_diagnostic_collection(
+            snapshot=snapshot,
+            update_dialog=update_dialog,
+        )
+
+    def _launch_diagnostic_collection(
+        self,
+        *,
+        snapshot: dict[str, object],
+        update_dialog: Callable[[str | None, str | None], None],
+    ) -> None:
+        self._report_collecting += 1
+        self.report_button.configure(state="disabled", text="Preparando...")
+
+        def collect() -> None:
+            try:
+                report = build_diagnostic_report(**snapshot)
+            except Exception as exc:
+                error = (
+                    "Nao foi possivel montar o relatorio local. Nenhum dado foi "
+                    f"enviado. Codigo interno: {type(exc).__name__}."
+                )
+                self._ui(lambda error=error: update_dialog(None, error))
+            else:
+                self._ui(lambda report=report: update_dialog(report, None))
+            finally:
+                self._ui(self._finish_diagnostic_collection)
+
+        threading.Thread(target=collect, daemon=True).start()
+
+    def _finish_diagnostic_collection(self) -> None:
+        self._report_collecting = max(0, self._report_collecting - 1)
+        if not self._report_collecting:
+            self.report_button.configure(state="normal", text="Diagnóstico")
+
+    def _show_failure_dialog(
+        self, title: str, summary: str, snapshot: dict[str, object]
+    ) -> None:
+        update_dialog = self._show_diagnostic_dialog(title, summary, None)
+        self._launch_diagnostic_collection(
+            snapshot=snapshot,
+            update_dialog=update_dialog,
+        )
+
+    def _show_diagnostic_dialog(
+        self, title: str, summary: str, report: str | None
+    ) -> Callable[[str | None, str | None], None]:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(title)
+        dialog.geometry("760x610")
+        dialog.minsize(680, 520)
+        dialog.configure(fg_color=BG)
+        dialog.transient(self)
+
+        ctk.CTkLabel(
+            dialog,
+            text=summary,
+            justify="left",
+            anchor="w",
+            wraplength=700,
+            text_color=TEXT,
+            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+        ).pack(fill="x", padx=22, pady=(20, 10))
+        ctk.CTkLabel(
+            dialog,
+            text=(
+                "Nada e enviado automaticamente. O chamado no GitHub sera publico; "
+                "revise o texto e nao anexe saves nem arquivos do jogo."
+            ),
+            justify="left",
+            anchor="w",
+            wraplength=700,
+            text_color="#b9eadb",
+        ).pack(fill="x", padx=22, pady=(0, 10))
+
+        report_box = ctk.CTkTextbox(
+            dialog,
+            fg_color="#0d0d14",
+            text_color="#d6d0c3",
+            font=ctk.CTkFont("Consolas", 11),
+            wrap="none",
+        )
+        report_box.pack(fill="both", expand=True, padx=22, pady=(0, 14))
+        report_box.insert(
+            "1.0",
+            report
+            or "Preparando o diagnostico local e sanitizado...\n"
+            "A mensagem de erro acima ja pode ser usada para suporte.",
+        )
+        report_box.configure(state="disabled")
+        report_holder = {"text": report}
+
+        feedback = ctk.StringVar(value="")
+        ctk.CTkLabel(
+            dialog,
+            textvariable=feedback,
+            anchor="w",
+            text_color=MUTED,
+        ).pack(fill="x", padx=22, pady=(0, 5))
+
+        def copy_report() -> bool:
+            current_report = report_holder["text"]
+            if current_report is None:
+                feedback.set("Aguarde o diagnostico terminar.")
+                return False
+            self.clipboard_clear()
+            self.clipboard_append(current_report)
+            self.update_idletasks()
+            feedback.set("Diagnostico copiado. Revise e cole no campo da issue.")
+            return True
+
+        def save_report() -> None:
+            current_report = report_holder["text"]
+            if current_report is None:
+                feedback.set("Aguarde o diagnostico terminar.")
+                return
+            destination = filedialog.asksaveasfilename(
+                parent=dialog,
+                title="Salvar diagnostico sanitizado",
+                defaultextension=".json",
+                initialfile="ERPT-BR-diagnostico.json",
+                filetypes=(("Relatorio JSON", "*.json"), ("Todos os arquivos", "*.*")),
+            )
+            if not destination:
+                return
+            try:
+                Path(destination).write_text(
+                    current_report, encoding="utf-8", newline="\n"
+                )
+            except OSError as exc:
+                messagebox.showerror(
+                    "Nao foi possivel salvar",
+                    f"Escolha outro local.\n\nDetalhe: {exc}",
+                    parent=dialog,
+                )
+                return
+            feedback.set("Diagnostico salvo no local escolhido.")
+
+        def open_issue() -> None:
+            if not copy_report():
+                return
+            opened = webbrowser.open(COMPATIBILITY_ISSUE_URL)
+            feedback.set(
+                "Formulario aberto; cole o diagnostico e envie somente apos revisar."
+                if opened
+                else "Copiado. Abra a pagina Issues do projeto para colar o diagnostico."
+            )
+
+        buttons = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons.pack(fill="x", padx=22, pady=(0, 20))
+        copy_button = ctk.CTkButton(
+            buttons,
+            text="Copiar diagnóstico",
+            command=copy_report,
+            fg_color=GOLD,
+            hover_color=GOLD_HOVER,
+            text_color="#111116",
+        )
+        copy_button.pack(side="left", padx=(0, 8))
+        save_button = ctk.CTkButton(
+            buttons,
+            text="Salvar relatório",
+            command=save_report,
+            fg_color="#343449",
+            hover_color="#484860",
+        )
+        save_button.pack(side="left", padx=(0, 8))
+        issue_button = ctk.CTkButton(
+            buttons,
+            text="Abrir chamado",
+            command=open_issue,
+            fg_color="#245d4b",
+            hover_color="#327760",
+        )
+        issue_button.pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            buttons,
+            text="Fechar",
+            command=dialog.destroy,
+            width=80,
+            fg_color="#343449",
+            hover_color="#484860",
+        ).pack(side="right")
+        action_buttons = (copy_button, save_button, issue_button)
+        if report is None:
+            for button in action_buttons:
+                button.configure(state="disabled")
+
+        def update_report(
+            completed_report: str | None, error_message: str | None
+        ) -> None:
+            try:
+                if not dialog.winfo_exists():
+                    return
+            except Exception:
+                return
+            report_box.configure(state="normal")
+            report_box.delete("1.0", "end")
+            if completed_report is not None:
+                report_holder["text"] = completed_report
+                report_box.insert("1.0", completed_report)
+                feedback.set("Diagnostico pronto. Revise antes de compartilhar.")
+                for button in action_buttons:
+                    button.configure(state="normal")
+            else:
+                report_box.insert(
+                    "1.0",
+                    error_message
+                    or "O diagnostico local nao pôde ser preparado.",
+                )
+                feedback.set("Nada foi enviado.")
+            report_box.configure(state="disabled")
+
+        def focus_dialog() -> None:
+            try:
+                if dialog.winfo_exists():
+                    dialog.focus_force()
+            except TclError:
+                return
+
+        dialog.after(50, focus_dialog)
+        return update_report
+
     def _on_close(self) -> None:
         if self._busy:
             messagebox.showwarning(
@@ -513,6 +1006,7 @@ class PatcherApp(ctk.CTk):
                 "pode interromper a transacao.",
             )
             return
+        self._closing = True
         self.destroy()
 
     @staticmethod
@@ -536,9 +1030,23 @@ class PatcherApp(ctk.CTk):
         return result
 
     def _ui(self, callback: Callable[[], None]) -> None:
-        self.after(0, callback)
+        if self._closing:
+            return
+
+        def guarded_callback() -> None:
+            if not self._closing:
+                callback()
+
+        try:
+            self.after(0, guarded_callback)
+        except (RuntimeError, TclError):
+            # A coleta de diagnostico e daemon e pode terminar depois da janela.
+            return
 
     def _log(self, message: str) -> None:
+        with self._diagnostic_lock:
+            self._log_history.append(message.rstrip())
+
         def append() -> None:
             self.log_box.configure(state="normal")
             self.log_box.insert("end", message.rstrip() + "\n")
@@ -551,10 +1059,14 @@ class PatcherApp(ctk.CTk):
             self._ui(append)
 
     def _status(self, message: str) -> None:
+        with self._diagnostic_lock:
+            self._diagnostic_status = message
         self._ui(lambda: self.status_var.set(message))
 
     def _progress(self, current: int, total: int) -> None:
         value = 0.0 if total <= 0 else max(0.0, min(1.0, current / total))
+        with self._diagnostic_lock:
+            self._diagnostic_progress = (current, total)
         self._ui(lambda: self.progress.set(value))
 
     def _set_busy(self, busy: bool) -> None:
@@ -565,20 +1077,54 @@ class PatcherApp(ctk.CTk):
         self.browse_button.configure(state=state)
         self.path_entry.configure(state=state)
 
+    def _report_failure(
+        self,
+        *,
+        title: str,
+        exc: BaseException,
+        selected_path: str,
+        status_message: str,
+        display_message: str | None = None,
+    ) -> None:
+        code, _kind, technical_message = self._record_error(exc)
+        self._status(status_message)
+        self._log(f"ERRO [{code}]: {technical_message}")
+        with self._diagnostic_lock:
+            stage = self._diagnostic_stage
+        summary = (
+            f"{display_message or technical_message}\n\n"
+            f"Codigo para suporte: {code}\n"
+            f"Etapa em que parou: {stage}\n\n"
+            "Nenhum diagnostico foi enviado automaticamente."
+        )
+        snapshot = self._diagnostic_snapshot(selected_path)
+        self._ui(
+            lambda: self._show_failure_dialog(title, summary, snapshot)
+        )
+
     def _validated_context(self, selected_path: str) -> tuple[Path, str]:
+        self._set_stage(
+            "process_check",
+            "Confirmando que Elden Ring e Easy Anti-Cheat estao fechados...",
+        )
         blockers = running_blockers()
         if blockers:
             raise PatcherError(
                 "Feche manualmente antes de continuar: " + ", ".join(blockers) + "."
             )
+        self._set_stage("game_directory", "Validando a pasta do jogo...")
         game_dir = validate_game_directory(selected_path)
+        self._set_stage("backup_check", "Verificando recuperacoes pendentes...")
         pending = self._pending_transactions(game_dir)
         if pending:
             self._log(
                 "Transacao interrompida detectada. O backup verificado sera usado para "
                 "concluir esta recuperacao."
             )
-        return game_dir, require_supported_build(game_dir)
+        self._set_stage("steam_build", "Identificando a versao instalada pela Steam...")
+        build_info = steam_build_info(game_dir)
+        self._record_build_info(build_info, game_dir)
+        return game_dir, require_supported_build(game_dir, build_info)
 
     @staticmethod
     def _precommit_guard(game_dir: Path) -> None:
@@ -590,7 +1136,7 @@ class PatcherApp(ctk.CTk):
                 + ", ".join(blockers)
                 + ". Nenhum arquivo foi trocado."
             )
-        require_supported_build(game_dir)
+        require_supported_build(game_dir, before_game_writes=False)
         if optional_movie_payload_present(APP_ROOT):
             raise CompatibilityError(
                 "Uma pasta movie/movie_dlc apareceu durante a preparacao. Ela "
@@ -601,6 +1147,7 @@ class PatcherApp(ctk.CTk):
         if self._busy:
             return
         selected_path = self.path_var.get().strip()
+        self._begin_operation("install")
         self._set_busy(True)
         self.progress.set(0)
         threading.Thread(
@@ -609,12 +1156,15 @@ class PatcherApp(ctk.CTk):
 
     def _install_worker(self, selected_path: str) -> None:
         try:
-            self._status("Validando o build do jogo...")
             game_dir, build_id = self._validated_context(selected_path)
             self._log(
                 f"Steam build alvo reconhecido: {build_id} (jogo {SUPPORTED_GAME_VERSION})"
             )
 
+            self._set_stage(
+                "optional_movies",
+                "Verificando se o pacote contem somente audio autenticado...",
+            )
             if optional_movie_payload_present(APP_ROOT):
                 raise CompatibilityError(
                     "Esta versao candidata instala somente o audio. Foi encontrada "
@@ -629,8 +1179,19 @@ class PatcherApp(ctk.CTk):
                 log=self._log,
                 precommit_guard=lambda: self._precommit_guard(game_dir),
             )
+            self._set_stage(
+                "archive_validation",
+                "Validando os arquivos de audio do jogo...",
+                write_state="recovery_may_run",
+            )
             entry_count = engine.load_archives()
+            with self._diagnostic_lock:
+                self._diagnostic_write_state = "patch_not_started"
             self._log(f"Total de entradas BHD validadas: {entry_count}")
+            self._set_stage(
+                "legacy_backup_check",
+                "Verificando vestigios de instaladores anteriores...",
+            )
             legacy = sorted((game_dir / "sd").glob("sd*.bdt.original"))
             if legacy:
                 names = ", ".join(path.name for path in legacy)
@@ -650,7 +1211,11 @@ class PatcherApp(ctk.CTk):
                     "arquivos originais e so entao remova os sidecars .bk2.original."
                 )
 
-            self._status("Validando / obtendo o pacote de audio...")
+            self._set_stage(
+                "payload",
+                "Validando / obtendo o pacote de audio...",
+                write_state="patch_not_started",
+            )
             payload_dir = ensure_patch_data(
                 APP_ROOT,
                 log=self._log,
@@ -658,7 +1223,11 @@ class PatcherApp(ctk.CTk):
             )
             self._log(f"Payload verificado: {payload_dir}")
 
-            self._status("Montando e validando o plano completo...")
+            self._set_stage(
+                "plan",
+                "Montando e validando o plano completo...",
+                write_state="patch_not_started",
+            )
             plan = build_authenticated_plan(
                 engine, payload_dir, progress=self._progress
             )
@@ -674,13 +1243,26 @@ class PatcherApp(ctk.CTk):
                     f"{preview}{suffix}"
                 )
 
-            self._status("Revalidando jogo, EAC e Steam build antes da troca...")
+            self._set_stage(
+                "precommit",
+                "Revalidando jogo, EAC e Steam build antes da troca...",
+                write_state="patch_not_started",
+            )
             self._precommit_guard(game_dir)
 
-            self._status("Criando backup e preparando arquivos transacionais...")
+            self._set_stage(
+                "apply",
+                "Criando backup e preparando arquivos transacionais...",
+                write_state="transaction_active",
+            )
             applied, unmatched = engine.apply_plan(plan, progress=self._progress)
             self._progress(1, 1)
-            self._status("Dublagem instalada com seguranca.")
+            self._set_stage(
+                "completed",
+                "Dublagem instalada com seguranca.",
+                write_state="committed",
+                finished=True,
+            )
             self._log(
                 f"Concluido: {applied} slots de audio verificados e aplicados; "
                 f"{unmatched} sem alvo."
@@ -700,24 +1282,30 @@ class PatcherApp(ctk.CTk):
                 "ou ajuste somente a permissao da pasta do jogo; nao execute o patcher "
                 f"como administrador.\n\nDetalhe: {exc}"
             )
-            self._status("Sem permissao; nenhum sucesso foi confirmado.")
-            self._log(f"ERRO: {message}")
-            self._ui(lambda: messagebox.showerror("ERPT-BR", message))
+            self._report_failure(
+                title="ERPT-BR - permissao negada",
+                exc=exc,
+                selected_path=selected_path,
+                status_message="Sem permissao; nenhum sucesso foi confirmado.",
+                display_message=message,
+            )
         except (PatcherError, PatchDataError, OSError, ValueError) as exc:
-            message = str(exc)
-            self._status("Instalacao cancelada com seguranca.")
-            self._log(f"ERRO: {message}")
-            self._ui(lambda message=message: messagebox.showerror("ERPT-BR", message))
+            self._report_failure(
+                title="ERPT-BR - instalacao interrompida",
+                exc=exc,
+                selected_path=selected_path,
+                status_message="Instalacao cancelada com seguranca.",
+            )
         except Exception as exc:  # Falha inesperada: nunca anunciar sucesso parcial.
-            self._status("Falha inesperada; nenhum sucesso foi confirmado.")
-            self._log(f"ERRO INESPERADO: {type(exc).__name__}: {exc}")
-            self._ui(
-                lambda exc=exc: messagebox.showerror(
-                    "ERPT-BR",
-                    "Falha inesperada. Nao abra o jogo ate executar novamente o instalador "
-                    "ou verificar os arquivos pela Steam.\n\n"
-                    f"Detalhe: {type(exc).__name__}: {exc}",
-                )
+            self._report_failure(
+                title="ERPT-BR - falha inesperada",
+                exc=exc,
+                selected_path=selected_path,
+                status_message="Falha inesperada; nenhum sucesso foi confirmado.",
+                display_message=(
+                    "Falha inesperada. Nao abra o jogo ate executar novamente o "
+                    "instalador ou verificar os arquivos pela Steam."
+                ),
             )
         finally:
             self._ui(lambda: self._set_busy(False))
@@ -726,6 +1314,7 @@ class PatcherApp(ctk.CTk):
         if self._busy:
             return
         selected_path = self.path_var.get().strip()
+        self._begin_operation("restore")
         self._set_busy(True)
         self.progress.set(0)
         threading.Thread(
@@ -734,7 +1323,6 @@ class PatcherApp(ctk.CTk):
 
     def _restore_worker(self, selected_path: str) -> None:
         try:
-            self._status("Validando backup do build atual...")
             game_dir, build_id = self._validated_context(selected_path)
             self._log(f"Restauracao solicitada para o Steam build {build_id}.")
             failures: list[str] = []
@@ -746,7 +1334,17 @@ class PatcherApp(ctk.CTk):
                 precommit_guard=lambda: self._precommit_guard(game_dir),
             )
             try:
+                self._set_stage(
+                    "restore_validation",
+                    "Validando os arquivos e o backup do build atual...",
+                    write_state="recovery_may_run",
+                )
                 engine.load_archives()
+                self._set_stage(
+                    "restore_apply",
+                    "Restaurando e verificando os arquivos originais...",
+                    write_state="transaction_active",
+                )
                 engine.restore_current_backup()
                 audio_restored = True
             except (PatcherError, OSError) as exc:
@@ -756,20 +1354,33 @@ class PatcherApp(ctk.CTk):
             if failures:
                 details = "\n\n".join(failures)
                 if audio_restored:
-                    self._status("Restauracao parcial; confira os detalhes.")
+                    self._set_stage(
+                        "restore_partial",
+                        "Restauracao parcial; confira os detalhes.",
+                        write_state="partial_restore",
+                    )
                     self._log(f"RESTAURACAO PARCIAL: {details}")
-                    self._ui(
-                        lambda details=details: messagebox.showerror(
-                            "Restauracao parcial",
+                    partial_error = BackupError(details)
+                    self._report_failure(
+                        title="ERPT-BR - restauracao parcial",
+                        exc=partial_error,
+                        selected_path=selected_path,
+                        status_message="Restauracao parcial; confira os detalhes.",
+                        display_message=(
                             "Parte dos arquivos foi restaurada, mas a operacao inteira "
                             "nao foi confirmada. Nao abra o jogo ate tentar novamente ou "
-                            f"usar a verificacao da Steam.\n\n{details}",
-                        )
+                            "usar a verificacao da Steam."
+                        ),
                     )
                     return
                 raise BackupError(details)
 
-            self._status("Arquivos originais restaurados e verificados.")
+            self._set_stage(
+                "restore_completed",
+                "Arquivos originais restaurados e verificados.",
+                write_state="restored",
+                finished=True,
+            )
             self._ui(
                 lambda: messagebox.showinfo(
                     "Restauracao concluida",
@@ -783,19 +1394,24 @@ class PatcherApp(ctk.CTk):
             PatcherError,
             OSError,
         ) as exc:
-            self._status("Restauracao nao realizada.")
-            self._log(f"ERRO: {exc}")
-            self._ui(lambda exc=exc: messagebox.showerror("ERPT-BR", str(exc)))
+            self._report_failure(
+                title="ERPT-BR - restauracao interrompida",
+                exc=exc,
+                selected_path=selected_path,
+                status_message="Restauracao nao realizada.",
+            )
         except Exception as exc:
-            self._status("Falha inesperada; a restauracao nao foi confirmada.")
-            self._log(f"ERRO INESPERADO: {type(exc).__name__}: {exc}")
-            self._ui(
-                lambda exc=exc: messagebox.showerror(
-                    "ERPT-BR",
+            self._report_failure(
+                title="ERPT-BR - falha inesperada na restauracao",
+                exc=exc,
+                selected_path=selected_path,
+                status_message=(
+                    "Falha inesperada; a restauracao nao foi confirmada."
+                ),
+                display_message=(
                     "Falha inesperada durante a restauracao. Nao abra o jogo ate "
-                    "executar novamente o patcher ou verificar os arquivos pela Steam.\n\n"
-                    f"Detalhe: {type(exc).__name__}: {exc}",
-                )
+                    "executar novamente o patcher ou verificar os arquivos pela Steam."
+                ),
             )
         finally:
             self._ui(lambda: self._set_busy(False))

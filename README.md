@@ -57,7 +57,7 @@ Se você já usou o `.exe` antigo, faça primeiro a [migração segura](MIGRACAO
 
 ### Instalação e uso: um único arquivo
 
-1. Baixe `ERPT-BR-v0.9.1-source-win64.zip` na página
+1. Baixe `ERPT-BR-v0.9.2-source-win64.zip` na página
    [Releases](https://github.com/lorepamplona/ERPT-BR/releases). Não use o ZIP
    automático “Source code”, pois ele não contém as dependências offline.
 2. Extraia o ZIP inteiro para uma pasta normal.
@@ -89,6 +89,30 @@ Da mesma forma, uma cópia de backup interrompida pode deixar uma pasta oculta
 `.xxxxxxxxxxxx-xxxxxxxx` ao lado dos backups. O patcher registra o caminho exato
 e a preserva; remova-a manualmente somente depois de confirmar que ela não é o
 único backup útil.
+
+## Diagnóstico de compatibilidade e travamentos
+
+Uma versão do jogo fora do alvo, como a 1.17.0, não fica mais parecendo uma
+instalação parada: o patcher mostra o BuildID encontrado, o BuildID suportado, a
+etapa em que interrompeu e um código estável como `ERPT-COMPAT-001`. A recusa
+acontece antes de carregar ou alterar os arquivos de áudio.
+
+O botão **Diagnóstico** permanece disponível até durante uma operação. Ele gera
+localmente um relatório JSON com versão do patcher, BuildID já identificado,
+etapa, tempo nessa etapa, último progresso, sistema e registros recentes.
+Quando há uma falha, a explicação aparece imediatamente enquanto esse relatório
+é preparado em segundo plano.
+O relatório não cria campos para nome do usuário, pasta completa, SteamID, saves
+ou conteúdo do manifesto e remove padrões conhecidos desses dados nos textos de
+erro. O diagnóstico também não abre nem calcula hash dos arquivos do jogo. Ainda
+assim, revise o conteúdo antes de publicá-lo.
+
+Nada é enviado automaticamente. Na janela do relatório, o usuário pode revisar,
+copiar, salvar ou clicar em **Abrir chamado**. Esse último botão apenas copia o
+diagnóstico e abre o
+[formulário de compatibilidade](https://github.com/lorepamplona/ERPT-BR/issues/new?template=compatibilidade.yml);
+o envio continua manual e a issue será pública. Não anexe saves nem arquivos do
+jogo.
 
 ## Backup e atualizações do jogo
 
@@ -157,7 +181,7 @@ Ainda faltam os testes que alteram ou executam a instalação usada pela Steam:
 - abertura do jogo e conferência de falas;
 - login, summon/invasão e encerramento de uma sessão online com o EAC normal.
 
-Por isso, trate `v0.9.1` como candidata até esse smoke test ser concluído. O
+Por isso, trate `v0.9.2` como candidata até esse smoke test ser concluído. O
 patcher bloqueia outros BuildIDs e não altera executável, DLL, save, launcher ou
 Easy Anti-Cheat.
 

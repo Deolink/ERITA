@@ -24,6 +24,7 @@ SOURCE_FILES = (
     "LICENSE",
     "patcher/__init__.py",
     "patcher/engine.py",
+    "patcher/diagnostics.py",
     "patcher/patch_data.py",
     "patcher/patcher_gui.py",
     "patcher/patcher.ico",
