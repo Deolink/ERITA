@@ -165,6 +165,79 @@ class GuiIntegrationTests(unittest.TestCase):
         app._report_failure.assert_called_once()
         self.assertIs(app._report_failure.call_args.kwargs["exc"], build_error)
 
+    def test_install_worker_suspends_before_engine_or_payload_access(self) -> None:
+        app = mock.Mock()
+        app._validated_context.return_value = (Path("selected-game"), "25080141")
+
+        with (
+            mock.patch.object(patcher_gui, "PatchEngine") as engine_class,
+            mock.patch.object(patcher_gui, "ensure_patch_data") as ensure_payload,
+        ):
+            patcher_gui.PatcherApp._install_worker(app, "selected-game")
+
+        engine_class.assert_not_called()
+        ensure_payload.assert_not_called()
+        app._report_failure.assert_called_once()
+        error = app._report_failure.call_args.kwargs["exc"]
+        self.assertIsInstance(error, patcher_gui.InstallationSuspendedError)
+        self.assertEqual(error.code, "ERPT-AUDIO-001")
+        self.assertIn("Nenhum arquivo novo sera alterado", str(error))
+
+    def test_suspension_code_is_preserved_in_diagnostic_state(self) -> None:
+        app = self._diagnostic_state_stub()
+
+        code, kind, _message = patcher_gui.PatcherApp._record_error(
+            app, patcher_gui.InstallationSuspendedError()
+        )
+
+        self.assertEqual(code, "ERPT-AUDIO-001")
+        self.assertEqual(kind, "InstallationSuspendedError")
+        self.assertEqual(app._last_error_code, "ERPT-AUDIO-001")
+
+    def test_restore_remains_available_while_installation_is_suspended(self) -> None:
+        app = mock.Mock()
+        game_dir = Path("selected-game")
+        app._validated_context.return_value = (game_dir, "25080141")
+        patch_engine = mock.Mock()
+
+        with (
+            mock.patch.object(patcher_gui, "INSTALLATION_SUSPENDED", True),
+            mock.patch.object(
+                patcher_gui, "PatchEngine", return_value=patch_engine
+            ) as engine_class,
+            mock.patch.object(patcher_gui, "ensure_patch_data") as ensure_payload,
+        ):
+            patcher_gui.PatcherApp._restore_worker(app, "selected-game")
+
+        engine_class.assert_called_once()
+        patch_engine.load_archives.assert_called_once_with()
+        patch_engine.restore_current_backup.assert_called_once_with()
+        ensure_payload.assert_not_called()
+        app._report_failure.assert_not_called()
+        app._set_stage.assert_any_call(
+            "restore_completed",
+            "Arquivos originais restaurados e verificados.",
+            write_state="restored",
+            finished=True,
+        )
+
+    def test_restore_failure_points_user_to_steam_verification(self) -> None:
+        app = mock.Mock()
+        app._validated_context.return_value = (Path("selected-game"), "25080141")
+        patch_engine = mock.Mock()
+        patch_engine.restore_current_backup.side_effect = patcher_gui.BackupError(
+            "backup ausente; use a verificacao da Steam"
+        )
+
+        with mock.patch.object(
+            patcher_gui, "PatchEngine", return_value=patch_engine
+        ):
+            patcher_gui.PatcherApp._restore_worker(app, "selected-game")
+
+        app._report_failure.assert_called_once()
+        error = app._report_failure.call_args.kwargs["exc"]
+        self.assertIn("verificacao da Steam", str(error))
+
     def test_precommit_build_change_does_not_claim_no_files_changed(self) -> None:
         error = patcher_gui.UnsupportedBuildError(
             patcher_gui.SteamBuildInfo("11111111", "identified"),

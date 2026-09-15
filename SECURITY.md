@@ -24,9 +24,10 @@
   `CN=Python Software Foundation, O=Python Software Foundation, L=Beaverton, S=Oregon, C=US`.
   Ele instala somente no perfil atual, não adiciona Python ao `PATH` e não tenta
   autoelevação. O executável oficial não é incluído no ZIP do mod.
-- O download de dados em runtime é `patch_data_v081.zip`, tratado como dado e
-  validado por HTTPS, tamanho, SHA-256, estrutura ZIP e um digest canônico de
-  todos os caminhos, tamanhos e bytes extraídos.
+- Os metadados do payload legado `patch_data_v081.zip` permanecem fixados para
+  auditoria, mas o hotfix 0.9.3 bloqueia o fluxo antes de baixá-lo ou aplicá-lo.
+  Uma futura versão instalável deverá publicar e validar seu novo payload por
+  HTTPS, tamanho, SHA-256, estrutura ZIP e digest canônico dos arquivos.
 - Quando o ambiente Python está ausente ou inválido, o instalador o recria usando
   apenas os wheels locais verificados. Um ambiente íntegro é reutilizado; o fluxo
   não encerra processos, não se autoeleva e não se autoatualiza.
@@ -42,7 +43,7 @@ registra o digest SHA-256 do asset e gera um atestado de proveniência pelo GitH
 Actions. Para verificar um artefato com a CLI do GitHub:
 
 ```text
-gh attestation verify ERPT-BR-v0.9.2-source-win64.zip --repo lorepamplona/ERPT-BR
+gh attestation verify ERPT-BR-v0.9.3-source-win64.zip --repo lorepamplona/ERPT-BR
 ```
 
 O workflow usa dependências travadas por SHA de commit e nunca sobrescreve um
@@ -55,13 +56,12 @@ jogo; o instalador não tenta substituir as proteções da conta ou do sistema.
 
 ## Dados locais
 
-O programa não coleta telemetria nem envia arquivos do usuário. Em segundo plano,
-o patcher acessa a rede somente quando precisa baixar o payload de áudio fixado.
-O bootstrap de um clique também pode acessar WinGet ou `python.org` para instalar
-o Python oficial, conforme descrito acima. Os botões **Projeto** e **Abrir chamado**
-só pedem ao navegador padrão que abra o GitHub depois de um clique explícito; o
-relatório não é anexado à URL. Backups de áudio, ambientes isolados e cache ficam
-no perfil local do usuário.
+O programa não coleta telemetria nem envia arquivos do usuário. O hotfix 0.9.3
+não baixa payload de áudio. O bootstrap de um clique pode acessar WinGet ou
+`python.org` para instalar o Python oficial, conforme descrito acima. Os botões
+**Detalhes** e **Abrir chamado** só pedem ao navegador padrão que abra o GitHub
+depois de um clique explícito; o relatório não é anexado à URL. Backups de áudio,
+ambientes isolados e cache ficam no perfil local do usuário.
 Árvores de cache abandonadas são preservadas com nomes `.extract-*`/`.old-*`;
 o programa não tenta exclusão recursiva por um caminho que possa ter sido trocado
 por junction. A interface registra o caminho exato para limpeza manual posterior.

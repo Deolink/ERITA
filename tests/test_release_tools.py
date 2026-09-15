@@ -42,7 +42,7 @@ class ReleaseBytesTests(unittest.TestCase):
                         if relative == "README.md"
                         else b""
                     )
-                    out.writestr(f"ERPT-BR-v0.9.2/{relative}", data)
+                    out.writestr(f"ERPT-BR-v0.9.3/{relative}", data)
 
             with self.assertRaisesRegex(SystemExit, "Membro grande demais"):
                 verify_source_release.verify(str(archive))
@@ -52,7 +52,7 @@ class ReleaseBytesTests(unittest.TestCase):
             archive = Path(temp) / "many-members.zip"
             with zipfile.ZipFile(archive, "w") as out:
                 for index in range(len(verify_source_release.EXPECTED_FILES) + 1):
-                    out.writestr(f"ERPT-BR-v0.9.2/extra-{index}.txt", b"")
+                    out.writestr(f"ERPT-BR-v0.9.3/extra-{index}.txt", b"")
 
             with self.assertRaisesRegex(SystemExit, "quantidade inesperada"):
                 verify_source_release.verify(str(archive))
@@ -91,6 +91,7 @@ class ReleaseBytesTests(unittest.TestCase):
         self.assertNotIn("usebackq", source.casefold())
         self.assertEqual(source.count("goto :install_direct"), 1)
         self.assertIn('call "%~dp0interno\\ABRIR_INTERFACE.cmd"', source)
+        self.assertIn("'patcher\\bnk.py'", source)
         self.assertIn("'patcher\\diagnostics.py'", source)
         self.assertNotIn('call "%~dp0interno\\INSTALAR_AMBIENTE.cmd"', source)
         self.assertIn('set "ERPTBR_INTERNAL_CALL=1"', source)

@@ -123,8 +123,8 @@ jobs:
           $env:ERPTBR_INSTALL_ONLY = "1"
           & (Join-Path $packageRoot.FullName "ERPT-BR.cmd")
           if ($LASTEXITCODE -ne 0) { throw "Smoke test real de ERPT-BR.cmd falhou" }
-          $venvPython = Join-Path $smokeProfile "ERPT-BR\venv-0.9.2\Scripts\python.exe"
-          $venvSite = Join-Path $smokeProfile "ERPT-BR\venv-0.9.2\Lib\site-packages"
+          $venvPython = Join-Path $smokeProfile "ERPT-BR\venv-0.9.3\Scripts\python.exe"
+          $venvSite = Join-Path $smokeProfile "ERPT-BR\venv-0.9.3\Lib\site-packages"
           $sourceRoot = $packageRoot.FullName
           & $venvPython -I -S -c "import struct,sys,sysconfig; sys.path.extend((sys.argv[1],sys.argv[2])); import patcher.patcher_gui,tkinter,customtkinter; from Crypto.Cipher import AES; raise SystemExit(0 if sys.version_info[:3] == (3,13,15) and struct.calcsize('P') == 8 and sysconfig.get_platform().lower() == 'win-amd64' else 1)" $sourceRoot $venvSite
           if ($LASTEXITCODE -ne 0) { throw "Smoke test isolado do ambiente instalado falhou" }
@@ -144,6 +144,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: erpt-br-source-release
@@ -160,9 +164,20 @@ jobs:
         run: |
           archive="dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip"
           test -f "$archive"
-          gh release create "${{ github.ref_name }}" "$archive" \
-            --repo "${{ github.repository }}" \
-            --verify-tag \
-            --generate-notes \
-            --prerelease \
-            --title "ERPT-BR ${{ github.ref_name }}"
+          if test "$GITHUB_REF_NAME" = "v0.9.3"; then
+            notes="docs/RELEASE-0.9.3.md"
+            test -f "$notes"
+            gh release create "${{ github.ref_name }}" "$archive" \
+              --repo "${{ github.repository }}" \
+              --verify-tag \
+              --notes-file "$notes" \
+              --latest \
+              --title "ERPT-BR ${{ github.ref_name }} — Hotfix de recuperação"
+          else
+            gh release create "${{ github.ref_name }}" "$archive" \
+              --repo "${{ github.repository }}" \
+              --verify-tag \
+              --generate-notes \
+              --prerelease \
+              --title "ERPT-BR ${{ github.ref_name }}"
+          fi

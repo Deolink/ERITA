@@ -82,11 +82,13 @@ except ImportError:  # pragma: no cover - caminho usado pelo script interno
     from diagnostics import build_diagnostic_report
 
 
-PATCHER_VERSION = "0.9.2"
+PATCHER_VERSION = "0.9.3"
 SUPPORTED_GAME_VERSION = "1.17.1"
 SUPPORTED_STEAM_BUILD_IDS = frozenset({"25080141"})
 STEAM_APP_ID = "1245620"
 PROJECT_URL = "https://github.com/lorepamplona/ERPT-BR"
+INCIDENT_URL = f"{PROJECT_URL}/blob/main/docs/INCIDENTE-0.9.1.md"
+INSTALLATION_SUSPENDED = True
 COMPATIBILITY_ISSUE_URL = (
     f"{PROJECT_URL}/issues/new?template=compatibilidade.yml"
 )
@@ -155,6 +157,24 @@ class UnsupportedBuildError(CompatibilityError):
             "Esta versao ainda nao possui um perfil compativel. "
             f"{safety_message} Use 'Copiar "
             "diagnostico' para nos enviar os dados tecnicos sem informacoes pessoais."
+        )
+
+
+class InstallationSuspendedError(CompatibilityError):
+    """Bloqueia novas gravacoes enquanto o payload do build e reconstruido."""
+
+    code = "ERPT-AUDIO-001"
+
+    def __init__(self) -> None:
+        super().__init__(
+            f"INSTALACAO TEMPORARIAMENTE SUSPENSA [{self.code}]\n\n"
+            "O pacote usado pelas versoes 0.9.1 e 0.9.2 substitui bancos de "
+            "audio mais antigos que os do Elden Ring 1.17.1 e pode remover sons "
+            "da interface e de cutscenes. Nenhum arquivo novo sera alterado.\n\n"
+            "Se a dublagem ja foi instalada, use 'Corrigir audio (restaurar)' "
+            "agora. Se nao houver um backup valido, use Steam > Propriedades > "
+            "Arquivos instalados > Verificar integridade. Nao entre no modo "
+            "online antes de restaurar."
         )
 
 
@@ -396,7 +416,7 @@ class PatcherApp(ctk.CTk):
         self._diagnostic_stage_elapsed: int | None = None
         self._diagnostic_write_state = "not_started"
         self._diagnostic_progress = (0, 0)
-        self._diagnostic_status = "Pronto para verificar a instalacao."
+        self._diagnostic_status = "Instalacao suspensa; restaure o audio original."
         self._detected_build_id: str | None = None
         self._build_read_status = "not_checked"
         self._detected_build_path_key: str | None = None
@@ -413,7 +433,9 @@ class PatcherApp(ctk.CTk):
                 pass
 
         self.path_var = ctk.StringVar(value="")
-        self.status_var = ctk.StringVar(value="Pronto para verificar a instalacao.")
+        self.status_var = ctk.StringVar(
+            value="Instalacao suspensa; restaure o audio original."
+        )
         self.build_var = ctk.StringVar(
             value=f"ERPT-BR {PATCHER_VERSION} | alvo: Elden Ring {SUPPORTED_GAME_VERSION}"
         )
@@ -463,14 +485,14 @@ class PatcherApp(ctk.CTk):
                     lambda: messagebox.showwarning(
                         "Recuperacao necessaria",
                         "Foi encontrada uma instalacao interrompida para esta pasta. "
-                        "Nao abra o jogo agora. Use 'Restaurar original' ou conclua "
-                        "novamente a instalacao; o backup verificado sera usado.",
+                        "Nao abra o jogo agora. Use 'Corrigir audio (restaurar)'; "
+                        "o backup verificado sera usado.",
                     ),
                 )
             elif self._last_error_code is None:
                 self._set_stage(
-                    "ready",
-                    "Pronto para verificar a instalacao.",
+                    "installation_suspended",
+                    "Instalacao suspensa; use Corrigir audio (restaurar).",
                     finished=True,
                 )
 
@@ -491,20 +513,20 @@ class PatcherApp(ctk.CTk):
         ).pack(anchor="w", pady=(4, 0))
 
         notice = ctk.CTkFrame(
-            self, fg_color="#12251f", border_color="#245d4b", border_width=1
+            self, fg_color="#321719", border_color="#9f3c43", border_width=1
         )
         notice.pack(fill="x", padx=30, pady=(0, 12))
         ctk.CTkLabel(
             notice,
             text=(
-                "✓ Patcher em código-fonte: sem EXE do mod, ME3 ou DLL injetada no jogo.\n"
-                "O jogo continua sendo iniciado normalmente pela Steam/Easy Anti-Cheat.\n"
-                "Alvo candidato 1.17.1: o smoke test online final ainda está pendente."
+                "⚠ INSTALAÇÃO SUSPENSA NO ELDEN RING 1.17.1\n"
+                "As versões 0.9.1/0.9.2 podem remover cliques do menu e sons de cutscenes.\n"
+                "Se já instalou, não entre online: use Corrigir áudio (restaurar)."
             ),
             justify="left",
             anchor="w",
             font=ctk.CTkFont("Segoe UI", 12),
-            text_color="#b9eadb",
+            text_color="#ffd7d9",
         ).pack(fill="x", padx=14, pady=10)
 
         path_card = ctk.CTkFrame(self, fg_color=CARD)
@@ -541,33 +563,34 @@ class PatcherApp(ctk.CTk):
         action_row.pack(fill="x", padx=30, pady=(0, 12))
         self.install_button = ctk.CTkButton(
             action_row,
-            text="Instalar / atualizar dublagem",
+            text="Instalação suspensa",
             height=42,
             font=ctk.CTkFont("Segoe UI", 13, "bold"),
-            fg_color=GOLD,
-            hover_color=GOLD_HOVER,
-            text_color="#111116",
+            fg_color="#5a3033",
+            hover_color="#754046",
+            text_color="#f1d7d8",
             command=self._start_install,
         )
         self.install_button.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.restore_button = ctk.CTkButton(
             action_row,
-            text="Restaurar original",
+            text="Corrigir áudio (restaurar)",
             height=42,
-            width=170,
-            fg_color="#343449",
-            hover_color="#484860",
+            width=220,
+            fg_color=GOLD,
+            hover_color=GOLD_HOVER,
+            text_color="#111116",
             command=self._start_restore,
         )
         self.restore_button.pack(side="left", padx=(0, 8))
         self.project_button = ctk.CTkButton(
             action_row,
-            text="Projeto",
+            text="Detalhes",
             height=42,
             width=90,
             fg_color="#343449",
             hover_color="#484860",
-            command=lambda: webbrowser.open(PROJECT_URL),
+            command=lambda: webbrowser.open(INCIDENT_URL),
         )
         self.project_button.pack(side="left")
         self.report_button = ctk.CTkButton(
@@ -678,6 +701,8 @@ class PatcherApp(ctk.CTk):
         if isinstance(exc, UnsupportedBuildError):
             code = exc.code
             self._record_build_info(exc.build_info)
+        elif isinstance(exc, InstallationSuspendedError):
+            code = exc.code
         elif isinstance(exc, PermissionError):
             code = "ERPT-FS-001"
         elif isinstance(exc, PatchDataError):
@@ -1160,6 +1185,14 @@ class PatcherApp(ctk.CTk):
             self._log(
                 f"Steam build alvo reconhecido: {build_id} (jogo {SUPPORTED_GAME_VERSION})"
             )
+
+            if INSTALLATION_SUSPENDED:
+                self._set_stage(
+                    "installation_suspended",
+                    "Instalacao suspensa; nenhum arquivo sera alterado.",
+                    write_state="patch_not_started",
+                )
+                raise InstallationSuspendedError()
 
             self._set_stage(
                 "optional_movies",
