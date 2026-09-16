@@ -14,6 +14,6 @@ origini e gli hash accettati sono in `patcher/requirements-win64.lock` e
 
 Il bootstrap opzionale può installare Python 3.13.15 x64 ufficiale, distribuito
 dalla Python Software Foundation sotto la PSF License Agreement. L'installer non è
-incluso nello ZIP di ERPT-BR: viene ottenuto tramite WinGet o, quando WinGet è
+incluso nello ZIP di ERITA: viene ottenuto tramite WinGet o, quando WinGet è
 assente, direttamente da `python.org` dopo la convalida di dimensione, SHA-256,
 firma Authenticode ed editore.

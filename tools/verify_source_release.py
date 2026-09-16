@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 
 SOURCE_FILES = frozenset(
     {
-        "ERPT-BR.cmd",
+        "ERITA.cmd",
         "interno/INSTALAR_AMBIENTE.cmd",
         "interno/ABRIR_INTERFACE.cmd",
         "README.md",
@@ -65,6 +65,7 @@ FORBIDDEN_SOURCE_PATTERNS = {
     "installallusers=1": "instalacao global com elevacao",
     "-verb runas": "auto-elevacao UAC",
     "http://": "download sem HTTPS",
+    "erita_dev_unsafe_skip_payload_pin": "bypass de desenvolvimento da validacao do payload",
 }
 
 
@@ -160,7 +161,7 @@ def verify(path: str) -> None:
         if len(roots) != 1:
             raise SystemExit("O ZIP precisa ter uma unica pasta raiz.")
         root = next(iter(roots))
-        match = re.fullmatch(r"ERPT-BR-v(\d+\.\d+\.\d+)", root)
+        match = re.fullmatch(r"ERITA-v(\d+\.\d+\.\d+)", root)
         if not match:
             raise SystemExit(f"Pasta raiz inesperada no release: {root!r}")
         if relative_names != EXPECTED_FILES:
@@ -175,9 +176,9 @@ def verify(path: str) -> None:
             if "/" not in relative
             and PurePosixPath(relative).suffix.casefold() == ".cmd"
         )
-        if root_commands != ["ERPT-BR.cmd"]:
+        if root_commands != ["ERITA.cmd"]:
             raise SystemExit(
-                "O release precisa expor somente ERPT-BR.cmd na pasta principal."
+                "O release precisa expor somente ERITA.cmd na pasta principal."
             )
 
         # Force decompression and CRC validation for every allowlisted member,
@@ -211,7 +212,7 @@ def verify(path: str) -> None:
                     f"SHA-256 incorreto para {relative}: esperado {expected}, obtido {actual}"
                 )
 
-        one_click = member_bytes["ERPT-BR.cmd"].decode("utf-8")
+        one_click = member_bytes["ERITA.cmd"].decode("utf-8")
         installer = member_bytes["interno/INSTALAR_AMBIENTE.cmd"].decode("utf-8")
         launcher = member_bytes["interno/ABRIR_INTERFACE.cmd"].decode("utf-8")
         required_installer_controls = (
@@ -295,7 +296,7 @@ def verify(path: str) -> None:
             "interno\\ABRIR_INTERFACE.cmd",
             'call "%~dp0interno\\ABRIR_INTERFACE.cmd"',
             "if defined ERPTBR_INSTALL_ONLY goto :success_install_only",
-            "Local\\ERPTBR_Installer_",
+            "Local\\ERITA_Installer_",
             'set "ERPTBR_INTERNAL_CALL=1"',
             ":invalid_package",
         )
@@ -318,7 +319,7 @@ def verify(path: str) -> None:
                     f"Preflight do bootstrap nao fixa nome/hash de {relative}."
                 )
         preflight_order = (
-            one_click.find("rem Recusa ZIP automatico"),
+            one_click.find("rem Rifiuta lo ZIP automatico"),
             one_click.find("call :find_python"),
             one_click.find('"%ERPT_WINGET%" install'),
         )

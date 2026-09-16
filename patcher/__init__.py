@@ -1,3 +1,3 @@
-"""ERPT-BR source patcher."""
+"""ERITA source patcher."""
 
 __version__ = "0.9.1"

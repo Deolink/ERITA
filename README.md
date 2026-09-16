@@ -1,4 +1,4 @@
-# ERITA — Elden Ring Dublagem ITA (WORK IN PROGRESS)
+# ERITA — Elden Ring Doppiaggio ITA (WORK IN PROGRESS)
 
 Patcher per applicare il doppiaggio in Italiano a Elden Ring (PC).
 
@@ -13,7 +13,7 @@ dal test descritto in [Convalida in sospeso](#convalida-in-sospeso).
 
 ## La modalità online continua a funzionare?
 
-ERPT-BR **non usa Mod Engine 3**, non inietta DLL nel gioco, non disattiva l'Easy
+ERITA **non usa Mod Engine 3**, non inietta DLL nel gioco, non disattiva l'Easy
 Anti-Cheat e non cambia il modo di avviare il gioco. Dopo aver installato il doppiaggio,
 apri Elden Ring normalmente tramite Steam.
 
@@ -33,7 +33,7 @@ La release del mod non contiene un `.exe` creato o impacchettato dal progetto. I
 - dipendenze ufficiali in wheel, con versioni e SHA-256 bloccati;
 - metadati fissi di URL, dimensione e SHA-256 per autenticare il pacchetto audio.
 
-L'utente vede un solo punto di ingresso: `ERPT-BR.cmd`. Al primo utilizzo verifica
+L'utente vede un solo punto di ingresso: `ERITA.cmd`. Al primo utilizzo verifica
 un'installazione compatibile, installa esattamente Python 3.13.15 x64 nel profilo
 dell'utente quando necessario, prepara l'ambiente e apre il patcher. Negli utilizzi
 successivi, lo stesso file convalida rapidamente l'ambiente e apre l'interfaccia senza
@@ -60,17 +60,17 @@ Se hai già usato il vecchio `.exe`, esegui prima la [migrazione sicura](MIGRACA
 
 ### Installazione e uso: un unico file
 
-1. Scarica `ERPT-BR-v0.9.1-source-win64.zip` dalla pagina
+1. Scarica `ERITA-v0.9.1-source-win64.zip` dalla pagina
    [Releases](https://github.com/lorepamplona/ERPT-BR/releases). Non usare lo ZIP
    automatico "Source code", perché non contiene le dipendenze offline.
 2. Estrai l'intero ZIP in una cartella normale.
-3. Fai doppio clic su `ERPT-BR.cmd`. Se il Python corretto non è
+3. Fai doppio clic su `ERITA.cmd`. Se il Python corretto non è
    presente, lo script installa la versione ufficiale nel tuo profilo; poi prepara
    l'ambiente e apre il patcher.
 4. Seleziona `ELDEN RING\Game` e installa.
 5. Al termine, chiudi il patcher e apri il gioco normalmente tramite Steam.
 
-Per aprire o riparare ERPT-BR in seguito, usa sempre lo stesso `ERPT-BR.cmd`.
+Per aprire o riparare ERITA in seguito, usa sempre lo stesso `ERITA.cmd`.
 
 Non eseguire il patcher come amministratore. Se Windows nega la scrittura, usa una
 libreria Steam scrivibile dal tuo account o modifica solo il permesso della cartella
@@ -109,7 +109,7 @@ Prima di sostituire qualsiasi file, il patcher:
 7. ricalcola lo SHA-256 di ogni BDT modificato prima di annunciare il successo.
 
 Riserva alcuni GiB liberi. Il backup si trova fuori dalla cartella del gioco, in
-`%LOCALAPPDATA%\ERPT-BR\backups`, ed è collegato al fingerprint del build. Un
+`%LOCALAPPDATA%\ERITA\backups`, ed è collegato al fingerprint del build. Un
 backup di una versione precedente non viene mai ripristinato su un BHD nuovo.
 
 Ripristina l'audio originale **prima di spostare o rinominare la libreria Steam**. Se
@@ -121,14 +121,14 @@ I backup restano nel profilo di quell'account e non coordinano operazioni avviat
 un altro utente dello stesso computer.
 
 Quando Steam aggiorna Elden Ring, usa **Proprietà > File installati >
-Verifica integrità dei file** e attendi una versione di ERPT-BR che abbia come
+Verifica integrità dei file** e attendi una versione di ERITA che abbia come
 target il nuovo BuildID. Se un backup sicuro di un altro build impedisce la creazione
 del nuovo baseline, conferma prima l'audio originale e sposta quella cartella di
 backup specifica altrove; il patcher non la cancella mai automaticamente.
 Se c'è una transazione interrotta, il messaggio elenca anche i file
 privati `.rollback`/`.displaced` che devono essere preservati nella stessa quarantena,
 fuori da `Game\sd`, per non lasciare residui voluminosi né perdere le prove per il recupero.
-Anche le copie `.erptbr-stage-*`/`.erptbr-restore-*` lasciate da un'interruzione
+Anche le copie `.erita-stage-*`/`.erita-restore-*` lasciate da un'interruzione
 vengono preservate e hanno il percorso registrato per una pulizia manuale sicura.
 
 ## Limiti di questo aggiornamento

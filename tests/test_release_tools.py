@@ -42,7 +42,7 @@ class ReleaseBytesTests(unittest.TestCase):
                         if relative == "README.md"
                         else b""
                     )
-                    out.writestr(f"ERPT-BR-v0.9.1/{relative}", data)
+                    out.writestr(f"ERITA-v0.9.1/{relative}", data)
 
             with self.assertRaisesRegex(SystemExit, "Membro grande demais"):
                 verify_source_release.verify(str(archive))
@@ -52,7 +52,7 @@ class ReleaseBytesTests(unittest.TestCase):
             archive = Path(temp) / "many-members.zip"
             with zipfile.ZipFile(archive, "w") as out:
                 for index in range(len(verify_source_release.EXPECTED_FILES) + 1):
-                    out.writestr(f"ERPT-BR-v0.9.1/extra-{index}.txt", b"")
+                    out.writestr(f"ERITA-v0.9.1/extra-{index}.txt", b"")
 
             with self.assertRaisesRegex(SystemExit, "quantidade inesperada"):
                 verify_source_release.verify(str(archive))
@@ -62,17 +62,17 @@ class ReleaseBytesTests(unittest.TestCase):
             set(build_source_release.SOURCE_FILES),
             set(verify_source_release.SOURCE_FILES),
         )
-        self.assertIn("ERPT-BR.cmd", build_source_release.SOURCE_FILES)
+        self.assertIn("ERITA.cmd", build_source_release.SOURCE_FILES)
         root_commands = [
             relative
             for relative in build_source_release.SOURCE_FILES
             if "/" not in relative and relative.casefold().endswith(".cmd")
         ]
-        self.assertEqual(root_commands, ["ERPT-BR.cmd"])
+        self.assertEqual(root_commands, ["ERITA.cmd"])
 
     def test_one_click_bootstrap_keeps_authentication_controls(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (root / "ERPT-BR.cmd").read_text(encoding="utf-8")
+        source = (root / "ERITA.cmd").read_text(encoding="utf-8")
 
         self.assertIn("--exact --id Python.Python.3.13 --version 3.13.15", source)
         self.assertIn("--scope user --architecture x64", source)
@@ -93,8 +93,8 @@ class ReleaseBytesTests(unittest.TestCase):
         self.assertIn('call "%~dp0interno\\ABRIR_INTERFACE.cmd"', source)
         self.assertNotIn('call "%~dp0interno\\INSTALAR_AMBIENTE.cmd"', source)
         self.assertIn('set "ERPTBR_INTERNAL_CALL=1"', source)
-        self.assertIn("Local\\ERPTBR_Installer_", source)
-        self.assertNotIn("Local\\ERPTBR_Installer_v091", source)
+        self.assertIn("Local\\ERITA_Installer_", source)
+        self.assertNotIn("Local\\ERITA_Installer_v091", source)
         self.assertLess(
             source.index("rem Rifiuta lo ZIP automatico"),
             source.index("call :find_python"),

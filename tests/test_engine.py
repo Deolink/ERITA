@@ -580,8 +580,8 @@ class PatchEngineTests(unittest.TestCase):
             payload.mkdir()
             (payload / "voice.bnk").write_bytes(b"VOICE")
             patcher.load_archives()
-            stale_stage = game_dir / "sd" / ".sd.bdt.erptbr-stage-dead.tmp"
-            stale_restore = game_dir / "sd" / ".sd_dlc02.bdt.erptbr-restore-dead.tmp"
+            stale_stage = game_dir / "sd" / ".sd.bdt.erita-stage-dead.tmp"
+            stale_restore = game_dir / "sd" / ".sd_dlc02.bdt.erita-restore-dead.tmp"
             stale_stage.write_bytes(b"partial")
             stale_restore.write_bytes(b"partial")
 
@@ -806,7 +806,7 @@ class PatchEngineTests(unittest.TestCase):
             prior = manager.directory.parent / ".0123456789ab-deadbeef"
             prior.mkdir(parents=True)
             (prior / "sd.bdt.backup").write_bytes(b"partial")
-            unrelated = manager.directory.parent / ".not-erptbr-user-data"
+            unrelated = manager.directory.parent / ".not-erita-user-data"
             unrelated.mkdir()
 
             with manager.operation_lock():
@@ -884,8 +884,8 @@ class PatchEngineTests(unittest.TestCase):
                     manifest, _created, _hashes = old_manager.prepare()
                 transaction_id = "a" * 32
                 name = "sd.bdt"
-                rollback_name = f".erptbr-{transaction_id}-{name}.rollback"
-                displaced_name = f".erptbr-{transaction_id}-{name}.displaced"
+                rollback_name = f".erita-{transaction_id}-{name}.rollback"
+                displaced_name = f".erita-{transaction_id}-{name}.displaced"
                 rollback = game_dir / "sd" / rollback_name
                 rollback.write_bytes(originals[name])
                 original_digest = engine.sha256_file(rollback)
@@ -936,10 +936,10 @@ class PatchEngineTests(unittest.TestCase):
             transaction_id = "a" * 32
             name = "sd.bdt"
             extra_name = "sd_dlc99.bdt"
-            rollback_name = f".erptbr-{transaction_id}-{name}.rollback"
-            displaced_name = f".erptbr-{transaction_id}-{name}.displaced"
-            extra_rollback_name = f".erptbr-{transaction_id}-{extra_name}.rollback"
-            extra_displaced_name = f".erptbr-{transaction_id}-{extra_name}.displaced"
+            rollback_name = f".erita-{transaction_id}-{name}.rollback"
+            displaced_name = f".erita-{transaction_id}-{name}.displaced"
+            extra_rollback_name = f".erita-{transaction_id}-{extra_name}.rollback"
+            extra_displaced_name = f".erita-{transaction_id}-{extra_name}.displaced"
             rollback = game_dir / "sd" / rollback_name
             rollback.write_bytes(originals[name])
             extra_rollback = game_dir / "sd" / extra_rollback_name
@@ -1002,7 +1002,7 @@ class PatchEngineTests(unittest.TestCase):
                 destination_path = Path(destination)
                 if (
                     not failure_injected
-                    and ".erptbr-stage-" in source_path.name
+                    and ".erita-stage-" in source_path.name
                     and destination_path.name == "sd_dlc02.bdt"
                 ):
                     failure_injected = True
@@ -1044,7 +1044,7 @@ class PatchEngineTests(unittest.TestCase):
                 nonlocal commit_failed, rollback_swapped
                 if (
                     not commit_failed
-                    and ".erptbr-stage-" in source.name
+                    and ".erita-stage-" in source.name
                     and destination.name == "sd_dlc02.bdt"
                 ):
                     commit_failed = True
@@ -1127,7 +1127,7 @@ class PatchEngineTests(unittest.TestCase):
                 nonlocal publish_failed
                 if (
                     not publish_failed
-                    and ".erptbr-stage-" in source.name
+                    and ".erita-stage-" in source.name
                     and destination.name == "sd_dlc02.bdt"
                 ):
                     publish_failed = True
@@ -1169,8 +1169,8 @@ class PatchEngineTests(unittest.TestCase):
             completed = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(completed["state"], "applied")
             self.assertNotIn("transaction", completed)
-            self.assertFalse(list((game_dir / "sd").glob(".erptbr-*.rollback")))
-            self.assertFalse(list((game_dir / "sd").glob(".erptbr-*.displaced")))
+            self.assertFalse(list((game_dir / "sd").glob(".erita-*.rollback")))
+            self.assertFalse(list((game_dir / "sd").glob(".erita-*.displaced")))
 
     def test_existing_backup_rejects_unknown_same_size_bdt_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1225,7 +1225,7 @@ class PatchEngineTests(unittest.TestCase):
                 destination_path = Path(destination)
                 if (
                     not failure_injected
-                    and ".erptbr-stage-" in source_path.name
+                    and ".erita-stage-" in source_path.name
                     and destination_path.name == "sd_dlc02.bdt"
                 ):
                     failure_injected = True
@@ -1272,7 +1272,7 @@ class PatchEngineTests(unittest.TestCase):
                 result = real_copy(source, destination)
                 if (
                     not injected
-                    and ".erptbr-stage-" in destination.name
+                    and ".erita-stage-" in destination.name
                     and destination.name.startswith(".sd_dlc02")
                 ):
                     changed_path.write_bytes(external)
@@ -1314,7 +1314,7 @@ class PatchEngineTests(unittest.TestCase):
                 if (
                     not injected
                     and destination == external_path
-                    and ".erptbr-stage-" in source.name
+                    and ".erita-stage-" in source.name
                 ):
                     external_path.write_bytes(external)
                     injected = True
@@ -1443,7 +1443,7 @@ class PatchEngineTests(unittest.TestCase):
                 source: Path, destination: Path
             ) -> None:
                 nonlocal injected
-                if not injected and ".erptbr-stage-" in source.name:
+                if not injected and ".erita-stage-" in source.name:
                     injected = True
                     raise SimulatedPowerLoss()
                 real_publish(source, destination)
@@ -1483,7 +1483,7 @@ class PatchEngineTests(unittest.TestCase):
 
             def interrupt_before_stage(source: Path, destination: Path) -> None:
                 nonlocal interrupted
-                if not interrupted and ".erptbr-stage-" in source.name:
+                if not interrupted and ".erita-stage-" in source.name:
                     interrupted = True
                     raise SimulatedPowerLoss()
                 real_publish(source, destination)
@@ -1549,7 +1549,7 @@ class PatchEngineTests(unittest.TestCase):
             def lose_power_after_first_publish(source: Path, destination: Path) -> None:
                 nonlocal injected
                 real_publish(source, destination)
-                if not injected and ".erptbr-stage-" in source.name:
+                if not injected and ".erita-stage-" in source.name:
                     injected = True
                     raise SimulatedPowerLoss()
 
@@ -1592,7 +1592,7 @@ class PatchEngineTests(unittest.TestCase):
             def lose_power_after_first_publish(source: Path, destination: Path) -> None:
                 nonlocal injected
                 real_publish(source, destination)
-                if not injected and ".erptbr-stage-" in source.name:
+                if not injected and ".erita-stage-" in source.name:
                     injected = True
                     raise SimulatedPowerLoss()
 
@@ -1855,7 +1855,7 @@ class PatchEngineTests(unittest.TestCase):
 
             def replace_then_hash(path: Path, identity: tuple[int, int]) -> str:
                 nonlocal injected
-                if not injected and ".erptbr-stage-" in path.name:
+                if not injected and ".erita-stage-" in path.name:
                     path.unlink()
                     path.write_bytes(b"Z" * 16)
                     injected = True
@@ -1898,7 +1898,7 @@ class PatchEngineTests(unittest.TestCase):
                 nonlocal injected
                 digest = real_copy(source, destination)
                 if not injected and destination.name.startswith(
-                    ".sd_dlc02.bdt.erptbr-stage-"
+                    ".sd_dlc02.bdt.erita-stage-"
                 ):
                     changed_path.write_bytes(b"X" * len(originals["sd_dlc02.bdt"]))
                     injected = True
@@ -1949,7 +1949,7 @@ class PatchEngineTests(unittest.TestCase):
             def copy_then_change(source: Path, destination: Path) -> str:
                 nonlocal injected
                 digest = real_copy(source, destination)
-                if not injected and ".erptbr-restore-" in destination.name:
+                if not injected and ".erita-restore-" in destination.name:
                     external_path.write_bytes(external)
                     injected = True
                 return digest

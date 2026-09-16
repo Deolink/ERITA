@@ -13,14 +13,14 @@ rem Un mutex di Windows impedisce a due clic simultanei di ricreare lo stesso ve
 if defined ERPTBR_ONECLICK_MUTEX_HELD goto :main
 set "ERPTBR_ONECLICK_SELF=%~f0"
 set "ERPTBR_ONECLICK_MUTEX_HELD=1"
-"%ERPT_POWERSHELL%" -NoLogo -NoProfile -NonInteractive -Command "$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value.Replace('-','_'); $mutex=[Threading.Mutex]::new($false,('Local\ERPTBR_Installer_'+$sid)); $owned=$false; $code=1; try { try { $owned=$mutex.WaitOne(0,$false) } catch [Threading.AbandonedMutexException] { $owned=$true }; if(-not $owned) { Write-Host 'Un''altra installazione di ERPT-BR e'' gia'' in corso.'; $code=75 } else { & $env:ERPTBR_ONECLICK_SELF; $code=$LASTEXITCODE } } finally { if($owned) { [void]$mutex.ReleaseMutex() }; $mutex.Dispose() }; exit $code"
+"%ERPT_POWERSHELL%" -NoLogo -NoProfile -NonInteractive -Command "$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value.Replace('-','_'); $mutex=[Threading.Mutex]::new($false,('Local\ERITA_Installer_'+$sid)); $owned=$false; $code=1; try { try { $owned=$mutex.WaitOne(0,$false) } catch [Threading.AbandonedMutexException] { $owned=$true }; if(-not $owned) { Write-Host 'Un''altra installazione di ERITA e'' gia'' in corso.'; $code=75 } else { & $env:ERPTBR_ONECLICK_SELF; $code=$LASTEXITCODE } } finally { if($owned) { [void]$mutex.ReleaseMutex() }; $mutex.Dispose() }; exit $code"
 exit /b %ERRORLEVEL%
 
 :main
-echo ERPT-BR - installa o apri
+echo ERITA - installa o apri
 echo ---------------------------
 echo Questo script prepara il Python ufficiale nel tuo profilo, se necessario,
-echo installa ERPT-BR con le dipendenze offline e apre il patcher.
+echo installa ERITA con le dipendenze offline e apre il patcher.
 echo Nessun eseguibile proprio del progetto viene usato.
 echo.
 
@@ -46,7 +46,7 @@ goto :python_ready
 :install_direct
 set "ERPT_CURL=%SystemRoot%\System32\curl.exe"
 if not exist "%ERPT_CURL%" goto :no_safe_downloader
-set "ERPT_BOOTSTRAP_ROOT=%LOCALAPPDATA%\ERPT-BR\bootstrap"
+set "ERPT_BOOTSTRAP_ROOT=%LOCALAPPDATA%\ERITA\bootstrap"
 "%ERPT_POWERSHELL%" -NoLogo -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; $p=$env:ERPT_BOOTSTRAP_ROOT; $parent=Split-Path -Parent $p; foreach($candidate in @($parent,$p)) { if(Test-Path -LiteralPath $candidate) { $item=Get-Item -LiteralPath $candidate -Force; if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw ('Percorso di bootstrap non sicuro: '+$candidate) } } else { New-Item -ItemType Directory -Path $candidate -ErrorAction Stop | Out-Null } }"
 if errorlevel 1 goto :unsafe_bootstrap
 
@@ -67,7 +67,7 @@ if errorlevel 1 goto :python_install_invalid
 
 :python_ready
 echo CPython 3.13 x64 compatibile convalidato.
-echo Preparazione o apertura di ERPT-BR in corso...
+echo Preparazione o apertura di ERITA in corso...
 set "ERPTBR_NONINTERACTIVE=1"
 set "ERPTBR_INTERNAL_CALL=1"
 call "%~dp0interno\ABRIR_INTERFACE.cmd"
@@ -146,7 +146,7 @@ goto :failed
 
 :launcher_failed
 echo.
-echo ERRORE: impossibile preparare o aprire l'interfaccia di ERPT-BR.
+echo ERRORE: impossibile preparare o aprire l'interfaccia di ERITA.
 goto :failed
 
 :windows_environment_missing
@@ -157,7 +157,7 @@ goto :failed
 :invalid_package
 echo.
 echo ERRORE: questo pacchetto e' incompleto oppure una dipendenza non ha superato la verifica SHA-256.
-echo Usa ERPT-BR-v0.9.1-source-win64.zip dalla pagina Releases, estratto per intero.
+echo Usa ERITA-v0.9.1-source-win64.zip dalla pagina Releases, estratto per intero.
 echo Non usare lo ZIP automatico chiamato semplicemente Source code.
 goto :failed
 

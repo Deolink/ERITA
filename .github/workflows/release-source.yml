@@ -94,7 +94,7 @@ jobs:
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           New-Item -ItemType Directory -Force dist | Out-Null
-          $archive = "dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip"
+          $archive = "dist/ERITA-${{ github.ref_name }}-source-win64.zip"
           python tools/build_source_release.py `
             --version "${{ github.ref_name }}" `
             --wheelhouse wheelhouse `
@@ -113,26 +113,26 @@ jobs:
           }
           & "$env:SystemRoot\py.exe" -3.13 -I -S -c "import sys; raise SystemExit(sys.version_info[:3] != (3,13,15))"
           if ($LASTEXITCODE -ne 0) { throw "py.exe nao resolveu Python 3.13.15" }
-          $archive = "dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip"
-          $smokeRoot = Join-Path $env:RUNNER_TEMP "erptbr-source-install-smoke"
-          $smokeProfile = Join-Path $env:RUNNER_TEMP "erptbr-source-profile"
+          $archive = "dist/ERITA-${{ github.ref_name }}-source-win64.zip"
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "erita-source-install-smoke"
+          $smokeProfile = Join-Path $env:RUNNER_TEMP "erita-source-profile"
           Expand-Archive -LiteralPath $archive -DestinationPath $smokeRoot
           $packageRoot = Get-ChildItem -LiteralPath $smokeRoot -Directory | Select-Object -First 1
           $env:LOCALAPPDATA = $smokeProfile
           $env:ERPTBR_NONINTERACTIVE = "1"
           $env:ERPTBR_INSTALL_ONLY = "1"
-          & (Join-Path $packageRoot.FullName "ERPT-BR.cmd")
-          if ($LASTEXITCODE -ne 0) { throw "Smoke test real de ERPT-BR.cmd falhou" }
-          $venvPython = Join-Path $smokeProfile "ERPT-BR\venv-0.9.1\Scripts\python.exe"
-          $venvSite = Join-Path $smokeProfile "ERPT-BR\venv-0.9.1\Lib\site-packages"
+          & (Join-Path $packageRoot.FullName "ERITA.cmd")
+          if ($LASTEXITCODE -ne 0) { throw "Smoke test real de ERITA.cmd falhou" }
+          $venvPython = Join-Path $smokeProfile "ERITA\venv-0.9.1\Scripts\python.exe"
+          $venvSite = Join-Path $smokeProfile "ERITA\venv-0.9.1\Lib\site-packages"
           $sourceRoot = $packageRoot.FullName
           & $venvPython -I -S -c "import struct,sys,sysconfig; sys.path.extend((sys.argv[1],sys.argv[2])); import patcher.patcher_gui,tkinter,customtkinter; from Crypto.Cipher import AES; raise SystemExit(0 if sys.version_info[:3] == (3,13,15) and struct.calcsize('P') == 8 and sysconfig.get_platform().lower() == 'win-amd64' else 1)" $sourceRoot $venvSite
           if ($LASTEXITCODE -ne 0) { throw "Smoke test isolado do ambiente instalado falhou" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: erpt-br-source-release
-          path: dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip
+          name: erita-source-release
+          path: dist/ERITA-${{ github.ref_name }}-source-win64.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -146,23 +146,23 @@ jobs:
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: erpt-br-source-release
+          name: erita-source-release
           path: dist
 
       - name: Attest immutable artifacts
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
-          subject-path: dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip
+          subject-path: dist/ERITA-${{ github.ref_name }}-source-win64.zip
 
       - name: Publish new GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          archive="dist/ERPT-BR-${{ github.ref_name }}-source-win64.zip"
+          archive="dist/ERITA-${{ github.ref_name }}-source-win64.zip"
           test -f "$archive"
           gh release create "${{ github.ref_name }}" "$archive" \
             --repo "${{ github.repository }}" \
             --verify-tag \
             --generate-notes \
             --prerelease \
-            --title "ERPT-BR ${{ github.ref_name }}"
+            --title "ERITA ${{ github.ref_name }}"

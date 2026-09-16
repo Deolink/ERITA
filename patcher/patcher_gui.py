@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interfaccia dell'installatore in codice sorgente di ERPT-BR."""
+"""Interfaccia dell'installatore in codice sorgente di ERITA."""
 
 # L'eseguibile legacy scarica questo file da ``main`` e lo esegue con exec().
 # Interrompilo prima di importare qualsiasi modulo nuovo: l'utente deve migrare
@@ -18,10 +18,10 @@ if (
     _legacy_root = _legacy_tk.Tk()
     _legacy_root.withdraw()
     _legacy_messagebox.showwarning(
-        "ERPT-BR - migrazione necessaria",
+        "ERITA - migrazione necessaria",
         "Questo eseguibile è stato dismesso per sicurezza e non applicherà la patch.\n\n"
         "Scarica il pacchetto 'source-win64.zip' dalla pagina Releases del progetto, "
-        "estrailo ed esegui ERPT-BR.cmd.\n\n"
+        "estrailo ed esegui ERITA.cmd.\n\n"
         "Se una vecchia versione del doppiaggio è già stata installata, usa prima "
         "Steam > Elden Ring > Proprietà > File installati > "
         "Verifica integrità dei file.",
@@ -81,7 +81,7 @@ PATCHER_VERSION = "0.9.1"
 SUPPORTED_GAME_VERSION = "1.17.1"
 SUPPORTED_STEAM_BUILD_IDS = frozenset({"25080141"})
 STEAM_APP_ID = "1245620"
-PROJECT_URL = "https://github.com/lorepamplona/ERPT-BR"
+PROJECT_URL = "https://github.com/Deolink/ERITA"
 APP_ROOT = Path(__file__).resolve().parent.parent
 MOVIE_FOLDERS = ("movie", "movie_dlc")
 
@@ -187,7 +187,7 @@ def require_supported_build(game_dir: Path) -> str:
             "Build fuori dal target di questa versione candidata. "
             f"Target atteso: {', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} "
             f"(patch {SUPPORTED_GAME_VERSION}); trovato: {found}. "
-            "Aggiorna il gioco tramite Steam oppure attendi una nuova versione di ERPT-BR. "
+            "Aggiorna il gioco tramite Steam oppure attendi una nuova versione di ERITA. "
             "Nessun file è stato modificato."
         )
     return build_id
@@ -331,7 +331,7 @@ class PatcherApp(ctk.CTk):
         self.path_var = ctk.StringVar(value="")
         self.status_var = ctk.StringVar(value="Pronto per verificare l'installazione.")
         self.build_var = ctk.StringVar(
-            value=f"ERPT-BR {PATCHER_VERSION} | target: Elden Ring {SUPPORTED_GAME_VERSION}"
+            value=f"ERITA {PATCHER_VERSION} | target: Elden Ring {SUPPORTED_GAME_VERSION}"
         )
         self._build_interface()
         detected = find_elden_ring()
@@ -339,7 +339,7 @@ class PatcherApp(ctk.CTk):
             self.path_var.set(str(detected))
             build = steam_build_id(detected)
             self.build_var.set(
-                f"ERPT-BR {PATCHER_VERSION} | gioco {SUPPORTED_GAME_VERSION} | "
+                f"ERITA {PATCHER_VERSION} | gioco {SUPPORTED_GAME_VERSION} | "
                 f"Steam build {build or 'non identificato'}"
             )
             try:

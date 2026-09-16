@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 SOURCE_FILES = (
-    "ERPT-BR.cmd",
+    "ERITA.cmd",
     "interno/INSTALAR_AMBIENTE.cmd",
     "interno/ABRIR_INTERFACE.cmd",
     "README.md",
@@ -108,7 +108,7 @@ def build(root: Path, wheelhouse: Path, output: Path, version: str) -> None:
         content = (root / command_file).read_text(encoding="utf-8")
         if f"venv-{plain_version}" not in content:
             raise SystemExit(f"Versao do ambiente desatualizada em {command_file}.")
-    package_root = f"ERPT-BR-{version}"
+    package_root = f"ERITA-{version}"
     members: list[tuple[str, bytes]] = []
     for relative in SOURCE_FILES:
         source = root / relative

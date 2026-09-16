@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 if not defined ERPTBR_INTERNAL_CALL (
-  echo Questo e' un componente interno. Usa ERPT-BR.cmd nella cartella principale.
+  echo Questo e' un componente interno. Usa ERITA.cmd nella cartella principale.
   if not defined ERPTBR_NONINTERACTIVE pause
   exit /b 2
 )
@@ -9,7 +9,7 @@ for %%I in ("%~dp0..") do set "ERPT_PACKAGE_ROOT=%%~fI\"
 cd /d "%ERPT_PACKAGE_ROOT%"
 
 if not defined LOCALAPPDATA set "LOCALAPPDATA=%ERPT_PACKAGE_ROOT%.localdata"
-set "ERPT_ROOT=%LOCALAPPDATA%\ERPT-BR"
+set "ERPT_ROOT=%LOCALAPPDATA%\ERITA"
 set "ERPT_VENV=%ERPT_ROOT%\venv-0.9.1"
 set "ERPT_SITE=%ERPT_VENV%\Lib\site-packages"
 
@@ -34,7 +34,7 @@ if defined ERPTBR_INSTALL_ONLY exit /b 0
 
 "%ERPT_VENV%\Scripts\pythonw.exe" -I -S -c "import runpy,sys; sys.path.extend((sys.argv[1],sys.argv[2])); runpy.run_module('patcher.patcher_gui',run_name='__main__')" "%ERPT_PACKAGE_ROOT%." "%ERPT_SITE%"
 if errorlevel 1 (
-  echo ERPT-BR si e' chiuso con un errore. Esegui di nuovo ERPT-BR.cmd per riparare l'ambiente.
+  echo ERITA si e' chiuso con un errore. Esegui di nuovo ERITA.cmd per riparare l'ambiente.
   if not defined ERPTBR_NONINTERACTIVE pause
   exit /b 1
 )

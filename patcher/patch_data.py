@@ -1,4 +1,4 @@
-"""Secure acquisition and extraction of ERPT-BR's audio payload.
+"""Secure acquisition and extraction of ERITA's audio payload.
 
 Only data is downloaded by this module.  The archive URL, byte length and
 SHA-256 are pinned, so a GitHub release (or a local file with the same name)
@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import struct
+import sys
 import tempfile
 from typing import BinaryIO, Callable, ContextManager, Iterable, Mapping
 import urllib.parse
@@ -38,9 +39,27 @@ PAYLOAD_FILE_COUNT = 9_241
 PAYLOAD_UNCOMPRESSED_SIZE = 604_911_847
 PAYLOAD_MAX_FILE_SIZE = 74_897_763
 
-MARKER_FILENAME = ".erptbr-payload.json"
+MARKER_FILENAME = ".erita-payload.json"
 MARKER_SCHEMA = 2
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+
+# --- TEMPORANEO: bypass di sviluppo, da rimuovere prima di qualsiasi release --------
+# Con ERITA_DEV_UNSAFE_SKIP_PAYLOAD_PIN=1 nell'ambiente, i confronti con i valori
+# pinnati in PayloadSpec (dimensione/SHA-256 dell'archivio, conteggio file, digest
+# dell'albero estratto, marcatore) non bloccano piu' un payload diverso da quello
+# ufficiale: viene solo stampato un avviso su stderr. Serve unicamente per installare
+# a scopo di test i file italiani prima che esista una release firmata con il loro
+# manifesto reale. Di default e' disattivato: senza impostare questa variabile il
+# comportamento e le garanzie di sicurezza restano invariati.
+_DEV_UNSAFE_SKIP_PAYLOAD_PIN_ENV = "ERITA_DEV_UNSAFE_SKIP_PAYLOAD_PIN"
+
+
+def _dev_payload_pin_disabled() -> bool:
+    return os.environ.get(_DEV_UNSAFE_SKIP_PAYLOAD_PIN_ENV) == "1"
+
+
+def _dev_pin_warning(message: str) -> None:
+    print(f"[ERITA][DEV][{_DEV_UNSAFE_SKIP_PAYLOAD_PIN_ENV}] {message}", file=sys.stderr)
 
 LogCallback = Callable[[str], None]
 ProgressCallback = Callable[[int, int], None]
@@ -219,7 +238,7 @@ class PayloadCacheLock:
             self._stream.close()
             self._stream = None
             raise PatchDataError(
-                "Un'altra istanza di ERPT-BR sta validando il pacchetto audio. "
+                "Un'altra istanza di ERITA sta validando il pacchetto audio. "
                 "Attendi che l'altra finestra finisca e riprova."
             ) from exc
         return self
@@ -375,6 +394,12 @@ def _validate_stats(stats: PayloadStats, spec: PayloadSpec, source: Path) -> Non
             f"file più grande: atteso {spec.max_file_size}, trovato {stats.max_file_size}"
         )
     if errors:
+        if _dev_payload_pin_disabled():
+            _dev_pin_warning(
+                f"pin del payload disattivato, ignoro in '{source}': "
+                + "; ".join(errors)
+            )
+            return
         raise PayloadValidationError(
             f"Payload non valido in '{source}': " + "; ".join(errors)
         )
@@ -497,7 +522,9 @@ def _inspect_zip(
             )
         seen_targets.add(canonical)
 
-        if info.file_size < 0 or info.file_size > spec.max_file_size:
+        if info.file_size < 0 or (
+            info.file_size > spec.max_file_size and not _dev_payload_pin_disabled()
+        ):
             raise PayloadValidationError(
                 f"Dimensione fuori limite in {target_path.as_posix()!r}: {info.file_size}"
             )
@@ -507,7 +534,7 @@ def _inspect_zip(
             bnk_count += 1
         total_size += info.file_size
         max_file_size = max(max_file_size, info.file_size)
-        if total_size > spec.uncompressed_size:
+        if total_size > spec.uncompressed_size and not _dev_payload_pin_disabled():
             raise PayloadValidationError(
                 f"Lo ZIP supera la dimensione decompressa consentita ({spec.uncompressed_size})"
             )
@@ -542,15 +569,21 @@ def validate_archive(
             f"File di payload assente o non sicuro (link/reparse non consentito): '{path}'"
         )
     actual_size = metadata.st_size
-    if actual_size != spec.archive_size:
+    if actual_size != spec.archive_size and not _dev_payload_pin_disabled():
         raise PayloadValidationError(
             f"Dimensione errata di '{path}': attesa {spec.archive_size}, trovata {actual_size}"
         )
     actual_sha256 = _sha256_file(path, progress)
     if actual_sha256 != spec.sha256:
-        raise PayloadValidationError(
-            f"SHA-256 errato di '{path}': atteso {spec.sha256}, trovato {actual_sha256}"
-        )
+        if _dev_payload_pin_disabled():
+            _dev_pin_warning(
+                f"pin del payload disattivato, ignoro dimensione/SHA-256 divergenti di '{path}' "
+                f"(atteso {spec.sha256}, trovato {actual_sha256})."
+            )
+        else:
+            raise PayloadValidationError(
+                f"SHA-256 errato di '{path}': atteso {spec.sha256}, trovato {actual_sha256}"
+            )
     try:
         with zipfile.ZipFile(path, "r") as zf:
             entries = _inspect_zip(zf, spec, path)
@@ -619,6 +652,12 @@ def _validate_marker(path: Path, spec: PayloadSpec) -> None:
     expected = _marker_data(spec)
     for field, expected_value in expected.items():
         if marker.get(field) != expected_value:
+            if _dev_payload_pin_disabled():
+                _dev_pin_warning(
+                    f"pin del payload disattivato, ignoro marcatore divergente in "
+                    f"'{path}' (campo {field!r})."
+                )
+                continue
             raise PayloadValidationError(
                 f"Marcatore di payload divergente in '{path}' (campo {field!r})"
             )
@@ -817,10 +856,16 @@ def validate_patch_directory(
         ) from exc
     actual_tree_digest = tree_digest.hexdigest()
     if actual_tree_digest != spec.tree_sha256:
-        raise PayloadValidationError(
-            f"SHA-256 dell'albero estratto errato in '{root}': "
-            f"atteso {spec.tree_sha256}, ottenuto {actual_tree_digest}"
-        )
+        if _dev_payload_pin_disabled():
+            _dev_pin_warning(
+                f"pin del payload disattivato, ignoro digest dell'albero divergente in "
+                f"'{root}' (atteso {spec.tree_sha256}, ottenuto {actual_tree_digest})."
+            )
+        else:
+            raise PayloadValidationError(
+                f"SHA-256 dell'albero estratto errato in '{root}': "
+                f"atteso {spec.tree_sha256}, ottenuto {actual_tree_digest}"
+            )
     final_root = root.lstat()
     if (
         _metadata_is_link_or_reparse(final_root)
@@ -1215,7 +1260,7 @@ def download_archive(
     partial = target.with_name(f".{target.name}.download-{uuid.uuid4().hex}.part")
     request = urllib.request.Request(
         spec.url,
-        headers={"User-Agent": "ERPT-BR-source-installer/0.9 (+data-only)"},
+        headers={"User-Agent": "ERITA-source-installer/0.9 (+data-only)"},
         method="GET",
     )
     _log(log, f"Scaricamento dei dati fissati da {spec.url}")
@@ -1528,9 +1573,9 @@ def _recover_payload_cache_unlocked(
 def _default_cache_directory() -> Path:
     local_data = os.environ.get("LOCALAPPDATA")
     if local_data:
-        return _absolute_without_resolving(Path(local_data) / "ERPT-BR" / "payload")
+        return _absolute_without_resolving(Path(local_data) / "ERITA" / "payload")
     return _absolute_without_resolving(
-        Path.home() / ".local" / "share" / "ERPT-BR" / "payload"
+        Path.home() / ".local" / "share" / "ERITA" / "payload"
     )
 
 

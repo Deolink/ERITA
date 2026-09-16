@@ -1,4 +1,4 @@
-"""Core sicuro del patcher ERPT-BR.
+"""Core sicuro del patcher ERITA.
 
 Questo modulo non avvia il gioco, non inietta DLL e non modifica l'Easy Anti-Cheat.
 Sostituisce solamente gli slot audio esistenti nei file ``sd*.bdt`` dopo
@@ -38,7 +38,7 @@ MIN_MATCH_RATIO = 1.0
 BACKUP_SCHEMA = 1
 COPY_BUFFER_SIZE = 8 * 1024 * 1024
 TRANSACTION_FILE_RE = re.compile(
-    r"^\.erptbr-[0-9a-f]{32}-sd(?:_dlc\d+)?\.bdt\.(?:rollback|displaced)$",
+    r"^\.erita-[0-9a-f]{32}-sd(?:_dlc\d+)?\.bdt\.(?:rollback|displaced)$",
     re.IGNORECASE,
 )
 
@@ -340,7 +340,7 @@ def rsa_decrypt_bhd(encrypted: bytes, pem_key: str = ELDEN_RING_SD_KEY_PEM) -> b
         from Crypto.PublicKey import RSA
     except ImportError as exc:  # pragma: no cover - dipende dall'installazione locale
         raise PatcherError(
-            "Dipendenza PyCryptodome mancante. Esegui di nuovo ERPT-BR.cmd."
+            "Dipendenza PyCryptodome mancante. Esegui di nuovo ERITA.cmd."
         ) from exc
 
     key = RSA.import_key(pem_key)
@@ -546,7 +546,7 @@ def encrypt_aes_ecb(
         from Crypto.Cipher import AES
     except ImportError as exc:  # pragma: no cover - dipende dall'installazione locale
         raise PatcherError(
-            "Dipendenza PyCryptodome mancante. Esegui di nuovo ERPT-BR.cmd."
+            "Dipendenza PyCryptodome mancante. Esegui di nuovo ERITA.cmd."
         ) from exc
     cipher = AES.new(key, AES.MODE_ECB)
     for item in ranges:
@@ -898,8 +898,8 @@ def _atomic_json(path: Path, value: dict) -> None:
 def _default_backup_root() -> Path:
     local_data = os.environ.get("LOCALAPPDATA")
     if local_data:
-        return Path(local_data) / "ERPT-BR" / "backups"
-    return Path.home() / ".local" / "share" / "ERPT-BR" / "backups"
+        return Path(local_data) / "ERITA" / "backups"
+    return Path.home() / ".local" / "share" / "ERITA" / "backups"
 
 
 def _iter_backup_manifest_paths(backup_root: Path) -> tuple[Path, ...]:
@@ -965,7 +965,7 @@ class GameOperationLock:
             self._stream.close()
             self._stream = None
             raise PatcherError(
-                "Un'altra istanza di ERPT-BR sta già lavorando su questa installazione. "
+                "Un'altra istanza di ERITA sta già lavorando su questa installazione. "
                 "Chiudi l'altra finestra e attendi il termine dell'operazione."
             ) from exc
         return self
@@ -1169,7 +1169,7 @@ class BackupManager:
         )
 
     def _validate_live_state(self, manifest: dict) -> dict[Path, str]:
-        """Accetta solo l'originale salvato o l'ultimo risultato di ERPT-BR.
+        """Accetta solo l'originale salvato o l'ultimo risultato di ERITA.
 
         Questo impedisce di riutilizzare silenziosamente un backup se Steam sostituisce
         solo il contenuto del BDT, mantenendo lo stesso BHD e la stessa dimensione del file.
@@ -1242,8 +1242,8 @@ class BackupManager:
         name = archive.bdt_path.name
         rollback_name = (transaction.get("rollback_files") or {}).get(name)
         displaced_name = (transaction.get("displaced_files") or {}).get(name)
-        expected_rollback = f".erptbr-{transaction_id}-{name}.rollback"
-        expected_displaced = f".erptbr-{transaction_id}-{name}.displaced"
+        expected_rollback = f".erita-{transaction_id}-{name}.rollback"
+        expected_displaced = f".erita-{transaction_id}-{name}.displaced"
         if rollback_name != expected_rollback or displaced_name != expected_displaced:
             raise BackupError(f"Journal di recupero non valido per {name}.")
         # Apply the generic path validation as a second line of defence before
@@ -1753,8 +1753,8 @@ class BackupManager:
         for name, pre_digest in pre_hashes.items():
             if not isinstance(name, str) or not BDT_NAME_RE.fullmatch(name):
                 return False
-            expected_rollback = f".erptbr-{transaction_id}-{name}.rollback"
-            expected_displaced = f".erptbr-{transaction_id}-{name}.displaced"
+            expected_rollback = f".erita-{transaction_id}-{name}.rollback"
+            expected_displaced = f".erita-{transaction_id}-{name}.displaced"
             if (
                 rollback_files.get(name) != expected_rollback
                 or displaced_files.get(name) != expected_displaced
@@ -1920,8 +1920,8 @@ class BackupManager:
         sd_dir = self.archives[0].bdt_path.parent
         for archive in self.archives:
             patterns = (
-                f".{archive.bdt_path.name}.erptbr-stage-*.tmp",
-                f".{archive.bdt_path.name}.erptbr-restore-*.tmp",
+                f".{archive.bdt_path.name}.erita-stage-*.tmp",
+                f".{archive.bdt_path.name}.erita-restore-*.tmp",
             )
             for pattern in patterns:
                 for candidate in sd_dir.glob(pattern):
@@ -2204,13 +2204,13 @@ class BackupManager:
             },
             "rollback_files": {
                 archive.bdt_path.name: (
-                    f".erptbr-{transaction_id}-{archive.bdt_path.name}.rollback"
+                    f".erita-{transaction_id}-{archive.bdt_path.name}.rollback"
                 )
                 for archive in self.archives
             },
             "displaced_files": {
                 archive.bdt_path.name: (
-                    f".erptbr-{transaction_id}-{archive.bdt_path.name}.displaced"
+                    f".erita-{transaction_id}-{archive.bdt_path.name}.displaced"
                 )
                 for archive in self.archives
             },
@@ -2223,7 +2223,7 @@ class BackupManager:
                 record = records[archive.bdt_path.name]
                 source = self.directory / record["backup"]
                 temp = archive.bdt_path.with_name(
-                    f".{archive.bdt_path.name}.erptbr-restore-{transaction_id}.tmp"
+                    f".{archive.bdt_path.name}.erita-restore-{transaction_id}.tmp"
                 )
                 if temp.exists():
                     raise BackupError(f"File temporaneo inaspettato: {temp.name}.")
@@ -2447,7 +2447,7 @@ class PatchEngine:
                     ):
                         continue
                     rollback_name = rollback_names.get(name)
-                    expected_name = f".erptbr-{transaction_id}-{name}.rollback"
+                    expected_name = f".erita-{transaction_id}-{name}.rollback"
                     if (
                         rollback_name != expected_name
                         or not TRANSACTION_FILE_RE.fullmatch(rollback_name)
@@ -2849,13 +2849,13 @@ class PatchEngine:
             "new_sha256": {},
             "rollback_files": {
                 archive.bdt_path.name: (
-                    f".erptbr-{transaction_id}-{archive.bdt_path.name}.rollback"
+                    f".erita-{transaction_id}-{archive.bdt_path.name}.rollback"
                 )
                 for archive in archives_to_stage
             },
             "displaced_files": {
                 archive.bdt_path.name: (
-                    f".erptbr-{transaction_id}-{archive.bdt_path.name}.displaced"
+                    f".erita-{transaction_id}-{archive.bdt_path.name}.displaced"
                 )
                 for archive in archives_to_stage
             },
@@ -2873,7 +2873,7 @@ class PatchEngine:
                 record = records[archive.bdt_path.name]
                 backup_path = manager.directory / record["backup"]
                 stage_path = archive.bdt_path.with_name(
-                    f".{archive.bdt_path.name}.erptbr-stage-{transaction_id}.tmp"
+                    f".{archive.bdt_path.name}.erita-stage-{transaction_id}.tmp"
                 )
                 self.log(f"Preparazione della copia transazionale di {archive.bdt_path.name} in corso...")
                 copied_digest = _copy_with_sha256(backup_path, stage_path)

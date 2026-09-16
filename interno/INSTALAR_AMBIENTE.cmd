@@ -1,14 +1,14 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 if not defined ERPTBR_INTERNAL_CALL (
-  echo Questo e' un componente interno. Usa ERPT-BR.cmd nella cartella principale.
+  echo Questo e' un componente interno. Usa ERITA.cmd nella cartella principale.
   if not defined ERPTBR_NONINTERACTIVE pause
   exit /b 2
 )
 for %%I in ("%~dp0..") do set "ERPT_PACKAGE_ROOT=%%~fI\"
 cd /d "%ERPT_PACKAGE_ROOT%"
 
-echo ERPT-BR - installazione trasparente in codice sorgente
+echo ERITA - installazione trasparente in codice sorgente
 echo -------------------------------------------------
 echo Questo script crea un ambiente Python locale e installa solo i
 echo quattro pacchetti verificati che accompagnano questa release.
@@ -18,7 +18,7 @@ if not defined LOCALAPPDATA set "LOCALAPPDATA=%ERPT_PACKAGE_ROOT%.localdata"
 call :find_python
 if errorlevel 1 goto :python_missing
 
-set "ERPT_ROOT=%LOCALAPPDATA%\ERPT-BR"
+set "ERPT_ROOT=%LOCALAPPDATA%\ERITA"
 set "ERPT_VENV=%ERPT_ROOT%\venv-0.9.1"
 set "ERPT_SITE=%ERPT_VENV%\Lib\site-packages"
 
@@ -56,7 +56,7 @@ if errorlevel 1 goto :failed
 if errorlevel 1 goto :failed
 
 echo.
-echo Ambiente di ERPT-BR preparato con successo.
+echo Ambiente di ERITA preparato con successo.
 if not defined ERPTBR_NONINTERACTIVE pause
 exit /b 0
 
@@ -65,7 +65,7 @@ echo.
 echo ERRORE: CPython 3.13 x64 compatibile con Tkinter non e' stato trovato.
 echo Installalo dal sito https://www.python.org/downloads/release/python-31315/
 echo Scarica "Windows installer (64-bit)" e mantieni selezionati Python Launcher e Tcl/Tk.
-echo Non e' necessario installarlo per tutti gli utenti. Poi esegui di nuovo ERPT-BR.cmd.
+echo Non e' necessario installarlo per tutti gli utenti. Poi esegui di nuovo ERITA.cmd.
 goto :failed
 
 :find_python

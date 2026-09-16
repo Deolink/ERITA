@@ -21,7 +21,7 @@ Le versioni precedenti potevano anche lasciare `*.bk2.original` nelle cartelle
    `ELDEN RING\Game\movie`/`movie_dlc`. Steam di solito non rimuove i file
    extra durante la verifica.
 5. Installa la versione source seguendo il [README](README.md): estrai l'intero ZIP
-   e usa sempre `ERPT-BR.cmd`. Al primo utilizzo installa, in quelli successivi apre
+   e usa sempre `ERITA.cmd`. Al primo utilizzo installa, in quelli successivi apre
    ed inoltre ripara automaticamente un ambiente incompleto.
 
 Il nuovo patcher blocca l'installazione finché trova un `.original` legacy.
