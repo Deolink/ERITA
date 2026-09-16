@@ -42,9 +42,9 @@ class ReleaseBytesTests(unittest.TestCase):
                         if relative == "README.md"
                         else b""
                     )
-                    out.writestr(f"ERITA-v0.9.1/{relative}", data)
+                    out.writestr(f"ERITA-v0.9.3/{relative}", data)
 
-            with self.assertRaisesRegex(SystemExit, "Membro grande demais"):
+            with self.assertRaisesRegex(SystemExit, "Membro troppo grande"):
                 verify_source_release.verify(str(archive))
 
     def test_verifier_rejects_excessive_member_count_before_iteration(self) -> None:
@@ -52,9 +52,9 @@ class ReleaseBytesTests(unittest.TestCase):
             archive = Path(temp) / "many-members.zip"
             with zipfile.ZipFile(archive, "w") as out:
                 for index in range(len(verify_source_release.EXPECTED_FILES) + 1):
-                    out.writestr(f"ERITA-v0.9.1/extra-{index}.txt", b"")
+                    out.writestr(f"ERITA-v0.9.3/extra-{index}.txt", b"")
 
-            with self.assertRaisesRegex(SystemExit, "quantidade inesperada"):
+            with self.assertRaisesRegex(SystemExit, "quantità inaspettata"):
                 verify_source_release.verify(str(archive))
 
     def test_builder_and_verifier_share_the_source_allowlist(self) -> None:
@@ -91,6 +91,8 @@ class ReleaseBytesTests(unittest.TestCase):
         self.assertNotIn("usebackq", source.casefold())
         self.assertEqual(source.count("goto :install_direct"), 1)
         self.assertIn('call "%~dp0interno\\ABRIR_INTERFACE.cmd"', source)
+        self.assertIn("'patcher\\bnk.py'", source)
+        self.assertIn("'patcher\\diagnostics.py'", source)
         self.assertNotIn('call "%~dp0interno\\INSTALAR_AMBIENTE.cmd"', source)
         self.assertIn('set "ERPTBR_INTERNAL_CALL=1"', source)
         self.assertIn("Local\\ERITA_Installer_", source)

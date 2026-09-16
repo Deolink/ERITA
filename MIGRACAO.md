@@ -1,5 +1,12 @@
 # Migrazione dal vecchio installer `.exe`
 
+> [!CAUTION]
+> Anche le versioni source 0.9.1 e 0.9.2 sono temporaneamente sospese su
+> Elden Ring 1.17.1 per incompatibilità dei banchi audio. Se una delle due è già
+> stata applicata, usa la 0.9.3 e clicca su **Correggi audio (ripristina)**; se
+> non fosse possibile, verifica l'integrità tramite Steam. Non installare la
+> 0.8.4 come alternativa.
+
 L'eseguibile delle versioni 0.8.x è stato dismesso. Non va usato per
 installare, aggiornare né ripristinare il doppiaggio dopo un aggiornamento del gioco.
 
@@ -12,17 +19,16 @@ Le versioni precedenti potevano anche lasciare `*.bk2.original` nelle cartelle
 ## Procedura sicura
 
 1. Chiudi Elden Ring ed Easy Anti-Cheat.
-2. Su Steam, apri **Libreria > Elden Ring > Proprietà > File
-   installati > Verifica integrità dei file**.
-3. Attendi che Steam concluda e avvia il gioco una volta per confermare l'audio
-   originale. Chiudi di nuovo il gioco.
-4. Solo dopo questa verifica, rimuovi i file extra terminanti in
+2. Se la versione 0.9.1/0.9.2 ha creato un backup transazionale, apri la 0.9.3 e
+   clicca su **Correggi audio (ripristina)**.
+3. Se quel backup non esiste o il ripristino fallisce, su Steam apri **Libreria
+   > Elden Ring > Proprietà > File installati > Verifica integrità dei file**.
+4. Attendi che il recupero termini e avvia il gioco una volta per confermare i
+   clic e l'audio originali prima di tornare in modalità online.
+5. Solo dopo questa verifica, rimuovi i file extra terminanti in
    `.bdt.original` dentro `ELDEN RING\Game\sd` e i `*.bk2.original` in
    `ELDEN RING\Game\movie`/`movie_dlc`. Steam di solito non rimuove i file
    extra durante la verifica.
-5. Installa la versione source seguendo il [README](README.md): estrai l'intero ZIP
-   e usa sempre `ERITA.cmd`. Al primo utilizzo installa, in quelli successivi apre
-   ed inoltre ripara automaticamente un ambiente incompleto.
 
 Il nuovo patcher blocca l'installazione finché trova un `.original` legacy.
 Lo preserva e non tenta mai di indovinare se quel file appartiene al build attuale.
@@ -34,6 +40,6 @@ Usa lo stesso account Windows per installare e ripristinare. Prima di spostare o
 la libreria Steam, ripristina l'audio originale; se è già stata spostata con il doppiaggio
 applicato, esegui una nuova verifica di integrità tramite Steam.
 
-Le cutscene opzionali non vengono installate dalla candidata 0.9.1, poiché il vecchio pacchetto
-non ha ancora un manifesto crittografico pubblico. Non copiare le cartelle `movie`
-o `movie_dlc` nel nuovo installer.
+L'hotfix 0.9.3 non installa il doppiaggio né le cutscene opzionali. Non copiare le
+cartelle `movie` o `movie_dlc` al suo interno; il vecchio pacchetto non ha ancora
+un manifesto crittografico pubblico.

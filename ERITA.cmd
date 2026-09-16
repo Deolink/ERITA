@@ -17,16 +17,17 @@ set "ERPTBR_ONECLICK_MUTEX_HELD=1"
 exit /b %ERRORLEVEL%
 
 :main
-echo ERITA - installa o apri
+echo ERITA - hotfix di recupero
 echo ---------------------------
 echo Questo script prepara il Python ufficiale nel tuo profilo, se necessario,
-echo installa ERITA con le dipendenze offline e apre il patcher.
+echo installa l'interfaccia con le dipendenze offline e apre il ripristino.
+echo L'installazione del doppiaggio su Elden Ring 1.17.1 e' sospesa.
 echo Nessun eseguibile proprio del progetto viene usato.
 echo.
 
 rem Rifiuta lo ZIP automatico di GitHub e le release incomplete prima di installare Python.
 set "ERPT_PACKAGE_ROOT=%~dp0"
-"%ERPT_POWERSHELL%" -NoLogo -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -Force -ErrorAction Stop; $root=$env:ERPT_PACKAGE_ROOT; $required=@('interno\INSTALAR_AMBIENTE.cmd','interno\ABRIR_INTERFACE.cmd','patcher\requirements-win64.lock'); $wheels=@{'wheelhouse\customtkinter-5.2.2-py3-none-any.whl'='14ad3e7cd3cb3b9eb642b9d4e8711ae80d3f79fb82545ad11258eeffb2e6b37c';'wheelhouse\darkdetect-0.8.0-py3-none-any.whl'='a7509ccf517eaad92b31c214f593dbcf138ea8a43b2935406bbd565e15527a85';'wheelhouse\packaging-26.3-py3-none-any.whl'='d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c';'wheelhouse\pycryptodome-3.23.0-cp37-abi3-win_amd64.whl'='c75b52aacc6c0c260f204cbdd834f76edc9fb0d8e0da9fbf8352ef58202564e2'}; foreach($relative in $required+$wheels.Keys) { $path=Join-Path $root $relative; $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop; if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw ('File mancante o non sicuro: '+$relative) } }; foreach($entry in $wheels.GetEnumerator()) { $actual=(Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath (Join-Path $root $entry.Key) -Algorithm SHA256).Hash; if($actual -ne $entry.Value) { throw ('Wheel mancante o alterato: '+$entry.Key) } }" >nul 2>&1
+"%ERPT_POWERSHELL%" -NoLogo -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -Force -ErrorAction Stop; $root=$env:ERPT_PACKAGE_ROOT; $required=@('interno\INSTALAR_AMBIENTE.cmd','interno\ABRIR_INTERFACE.cmd','docs\INCIDENTE-0.9.1.md','patcher\__init__.py','patcher\bnk.py','patcher\engine.py','patcher\diagnostics.py','patcher\patch_data.py','patcher\patcher_gui.py','patcher\patcher.ico','patcher\requirements-win64.lock'); $wheels=@{'wheelhouse\customtkinter-5.2.2-py3-none-any.whl'='14ad3e7cd3cb3b9eb642b9d4e8711ae80d3f79fb82545ad11258eeffb2e6b37c';'wheelhouse\darkdetect-0.8.0-py3-none-any.whl'='a7509ccf517eaad92b31c214f593dbcf138ea8a43b2935406bbd565e15527a85';'wheelhouse\packaging-26.3-py3-none-any.whl'='d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c';'wheelhouse\pycryptodome-3.23.0-cp37-abi3-win_amd64.whl'='c75b52aacc6c0c260f204cbdd834f76edc9fb0d8e0da9fbf8352ef58202564e2'}; foreach($relative in $required+$wheels.Keys) { $path=Join-Path $root $relative; $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop; if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw ('File mancante o non sicuro: '+$relative) } }; foreach($entry in $wheels.GetEnumerator()) { $actual=(Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath (Join-Path $root $entry.Key) -Algorithm SHA256).Hash; if($actual -ne $entry.Value) { throw ('Wheel mancante o alterato: '+$entry.Key) } }" >nul 2>&1
 if errorlevel 1 goto :invalid_package
 
 call :find_python
@@ -157,7 +158,7 @@ goto :failed
 :invalid_package
 echo.
 echo ERRORE: questo pacchetto e' incompleto oppure una dipendenza non ha superato la verifica SHA-256.
-echo Usa ERITA-v0.9.1-source-win64.zip dalla pagina Releases, estratto per intero.
+echo Usa ERITA-v0.9.3-source-win64.zip dalla pagina Releases, estratto per intero.
 echo Non usare lo ZIP automatico chiamato semplicemente Source code.
 goto :failed
 

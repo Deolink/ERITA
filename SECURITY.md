@@ -24,9 +24,10 @@
   `CN=Python Software Foundation, O=Python Software Foundation, L=Beaverton, S=Oregon, C=US`.
   Installa solo nel profilo attuale, non aggiunge Python al `PATH` e non tenta
   l'autoelevazione. L'eseguibile ufficiale non è incluso nello ZIP del mod.
-- Il download dei dati a runtime è `patch_data_v081.zip`, trattato come dato e
-  validato tramite HTTPS, dimensione, SHA-256, struttura ZIP e un digest canonico di
-  tutti i percorsi, dimensioni e byte estratti.
+- I metadati del payload legacy `patch_data_v081.zip` restano fissati per
+  l'audit, ma l'hotfix 0.9.3 blocca il flusso prima di scaricarlo o applicarlo.
+  Una futura versione installabile dovrà pubblicare e validare il nuovo payload
+  tramite HTTPS, dimensione, SHA-256, struttura ZIP e digest canonico dei file.
 - Quando l'ambiente Python è assente o non valido, l'installer lo ricrea usando
   solo i wheel locali verificati. Un ambiente integro viene riutilizzato; il flusso
   non termina processi, non si autoeleva e non si autoaggiorna.
@@ -42,7 +43,7 @@ registra il digest SHA-256 dell'asset e genera un'attestazione di provenienza tr
 Actions. Per verificare un artefatto con la CLI di GitHub:
 
 ```text
-gh attestation verify ERITA-v0.9.1-source-win64.zip --repo Deolink/ERITA
+gh attestation verify ERITA-v0.9.3-source-win64.zip --repo Deolink/ERITA
 ```
 
 Il workflow usa dipendenze bloccate per SHA di commit e non sovrascrive mai un
@@ -55,16 +56,27 @@ gioco; l'installer non tenta di sostituire le protezioni dell'account o del sist
 
 ## Dati locali
 
-Il programma non raccoglie telemetria né invia file dell'utente. Il patcher accede
-alla rete solo quando deve scaricare il payload audio fissato. Il bootstrap con
-un clic può anche accedere a WinGet o a `python.org` per installare il Python
-ufficiale, come descritto sopra. I backup audio, gli ambienti isolati e la cache
-restano nel profilo locale dell'utente.
+Il programma non raccoglie telemetria né invia file dell'utente. L'hotfix 0.9.3
+non scarica payload audio. Il bootstrap con un clic può accedere a WinGet o a
+`python.org` per installare il Python ufficiale, come descritto sopra. I pulsanti
+**Dettagli** e **Apri segnalazione** chiedono al browser predefinito di aprire
+GitHub solo dopo un clic esplicito; il report non viene allegato all'URL. I
+backup audio, gli ambienti isolati e la cache restano nel profilo locale
+dell'utente.
 Gli alberi di cache abbandonati vengono preservati con nomi `.extract-*`/`.old-*`;
 il programma non tenta l'eliminazione ricorsiva di un percorso che potrebbe essere stato
 sostituito da una junction. L'interfaccia registra il percorso esatto per una pulizia manuale successiva.
 Le cartelle di staging dei backup interrotti seguono la stessa regola: vengono preservate
 e segnalate, mai rimosse ricorsivamente in modo automatico.
+
+La diagnostica di supporto viene elaborata localmente; solo la condivisione è
+opzionale. Usa un elenco chiuso di campi e rimuove dai testi pattern noti di
+percorsi, identità, e-mail, SteamID e segreti. Per evitare che una sostituzione
+concorrente della junction faccia accedere la diagnostica a un'altra destinazione,
+il report non apre, elenca né calcola l'hash dei file del gioco. Il pulsante
+**Apri segnalazione** copia il report e apre un modulo pubblico su GitHub, ma
+non esegue mai l'upload o la pubblicazione automatica. L'utente deve rivedere e
+inviare il contenuto manualmente.
 
 ## Segnalare una vulnerabilità
 

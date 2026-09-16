@@ -35,23 +35,23 @@ jobs:
           & "$env:SystemRoot\System32\curl.exe" --fail --show-error --proto "=https" --tlsv1.2 --retry 2 --output $manifest $manifestUrl
           $manifestHash = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash
           if ($manifestHash -ne "7fe6aab138453720882711688ffb220f9fd81a42c56bfe7d4a10939e6de052c2") {
-            throw "Manifesto WinGet fixado divergiu"
+            throw "Manifest WinGet fissato divergente"
           }
           $metadata = Get-Content -LiteralPath $manifest -Raw
           foreach ($expected in @($url, $expectedHash)) {
             if ($metadata.IndexOf($expected, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
-              throw "Manifesto WinGet nao contem $expected"
+              throw "Manifest WinGet non contiene $expected"
             }
           }
           $installer = Join-Path $env:RUNNER_TEMP "python-3.13.15-amd64-verification.exe"
           & "$env:SystemRoot\System32\curl.exe" --fail --show-error --proto "=https" --tlsv1.2 --retry 2 --output $installer $url
           $item = Get-Item -LiteralPath $installer
-          if ($item.Length -ne 29452944) { throw "Tamanho do instalador Python divergiu" }
+          if ($item.Length -ne 29452944) { throw "Dimensione dell'installer Python divergente" }
           $actualHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
-          if ($actualHash -ne $expectedHash) { throw "SHA-256 do instalador Python divergiu" }
+          if ($actualHash -ne $expectedHash) { throw "SHA-256 dell'installer Python divergente" }
           $signature = Get-AuthenticodeSignature -LiteralPath $installer
           if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Subject -ne $expectedPublisher) {
-            throw "Assinatura ou publicador do instalador Python divergiu"
+            throw "Firma o editore dell'installer Python divergente"
           }
 
       - name: Install locked dependencies
@@ -78,13 +78,13 @@ jobs:
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          if (Test-Path patcher/launcher.py) { throw "launcher dinamico proibido" }
+          if (Test-Path patcher/launcher.py) { throw "launcher dinamico proibito" }
           $forbiddenArtifacts = Get-ChildItem -Recurse -File | Where-Object {
             $_.Extension -match '^(?i:\.exe|\.dll|\.pyd)$' -or
             $_.Name -match '(?i:pyinstaller|nuitka)'
           }
           if ($forbiddenArtifacts) {
-            throw "artefato/binario ou script de empacotamento proibido: $($forbiddenArtifacts.FullName -join ', ')"
+            throw "artefatto/binario o script di impacchettamento proibito: $($forbiddenArtifacts.FullName -join ', ')"
           }
           $checked = @(
             Get-ChildItem patcher -Recurse -File
@@ -93,13 +93,13 @@ jobs:
             Get-Item ERITA.cmd
           )
           if ($checked | Select-String -Pattern '(?i)\b(pyinstaller|nuitka)\b') {
-            throw "ferramenta de empacotamento executavel encontrada"
+            throw "trovato strumento di impacchettamento eseguibile"
           }
           if ($checked | Select-String -SimpleMatch "exec(compile(") {
-            throw "execucao de codigo remoto encontrada"
+            throw "trovata esecuzione di codice remoto"
           }
           if ($checked | Select-String -SimpleMatch "taskkill") {
-            throw "encerramento forcado de processo encontrado"
+            throw "trovata terminazione forzata di processo"
           }
 
       - name: Build and verify the source-only ZIP
@@ -124,10 +124,10 @@ jobs:
           python tools/verify_source_release.py $archive
 
           if (-not (Test-Path "$env:SystemRoot\py.exe")) {
-            throw "Python Launcher oficial ausente no runner Windows"
+            throw "Python Launcher ufficiale assente sul runner Windows"
           }
           & "$env:SystemRoot\py.exe" -3.13 -I -S -c "import sys; raise SystemExit(sys.version_info[:3] != (3,13,15))"
-          if ($LASTEXITCODE -ne 0) { throw "py.exe nao resolveu Python 3.13.15" }
+          if ($LASTEXITCODE -ne 0) { throw "py.exe non ha risolto Python 3.13.15" }
 
           $smokeRoot = Join-Path $env:RUNNER_TEMP "erita-source-install-smoke"
           $smokeProfile = Join-Path $env:RUNNER_TEMP "erita-source-profile"
@@ -137,8 +137,8 @@ jobs:
           $env:ERPTBR_NONINTERACTIVE = "1"
           $env:ERPTBR_INSTALL_ONLY = "1"
           & (Join-Path $packageRoot.FullName "ERITA.cmd")
-          if ($LASTEXITCODE -ne 0) { throw "Smoke test real de ERITA.cmd falhou" }
-          $venvPython = Join-Path $smokeProfile "ERITA\venv-0.9.1\Scripts\python.exe"
-          $venvSite = Join-Path $smokeProfile "ERITA\venv-0.9.1\Lib\site-packages"
+          if ($LASTEXITCODE -ne 0) { throw "Smoke test reale di ERITA.cmd fallito" }
+          $venvPython = Join-Path $smokeProfile "ERITA\venv-0.9.3\Scripts\python.exe"
+          $venvSite = Join-Path $smokeProfile "ERITA\venv-0.9.3\Lib\site-packages"
           & $venvPython -I -S -c "import struct,sys,sysconfig; sys.path.extend((sys.argv[1],sys.argv[2])); import patcher.patcher_gui,tkinter,customtkinter; from Crypto.Cipher import AES; raise SystemExit(0 if sys.version_info[:3] == (3,13,15) and struct.calcsize('P') == 8 and sysconfig.get_platform().lower() == 'win-amd64' else 1)" $packageRoot.FullName $venvSite
-          if ($LASTEXITCODE -ne 0) { throw "Smoke test isolado do ambiente instalado falhou" }
+          if ($LASTEXITCODE -ne 0) { throw "Smoke test isolato dell'ambiente installato fallito" }

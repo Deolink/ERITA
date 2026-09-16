@@ -35,23 +35,23 @@ jobs:
           & "$env:SystemRoot\System32\curl.exe" --fail --show-error --proto "=https" --tlsv1.2 --retry 2 --output $manifest $manifestUrl
           $manifestHash = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash
           if ($manifestHash -ne "7fe6aab138453720882711688ffb220f9fd81a42c56bfe7d4a10939e6de052c2") {
-            throw "Manifesto WinGet fixado divergiu"
+            throw "Manifest WinGet fissato divergente"
           }
           $metadata = Get-Content -LiteralPath $manifest -Raw
           foreach ($expected in @($url, $expectedHash)) {
             if ($metadata.IndexOf($expected, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
-              throw "Manifesto WinGet nao contem $expected"
+              throw "Manifest WinGet non contiene $expected"
             }
           }
           $installer = Join-Path $env:RUNNER_TEMP "python-3.13.15-amd64-verification.exe"
           & "$env:SystemRoot\System32\curl.exe" --fail --show-error --proto "=https" --tlsv1.2 --retry 2 --output $installer $url
           $item = Get-Item -LiteralPath $installer
-          if ($item.Length -ne 29452944) { throw "Tamanho do instalador Python divergiu" }
+          if ($item.Length -ne 29452944) { throw "Dimensione dell'installer Python divergente" }
           $actualHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
-          if ($actualHash -ne $expectedHash) { throw "SHA-256 do instalador Python divergiu" }
+          if ($actualHash -ne $expectedHash) { throw "SHA-256 dell'installer Python divergente" }
           $signature = Get-AuthenticodeSignature -LiteralPath $installer
           if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Subject -ne $expectedPublisher) {
-            throw "Assinatura ou publicador do instalador Python divergiu"
+            throw "Firma o editore dell'installer Python divergente"
           }
 
       - name: Validate release version
@@ -60,7 +60,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $expected = "v" + (python -c "import patcher; print(patcher.__version__)")
           if ("${{ github.ref_name }}" -ne $expected) {
-            throw "Tag ${{ github.ref_name }} nao corresponde ao codigo $expected"
+            throw "Tag ${{ github.ref_name }} non corrisponde al codice $expected"
           }
 
       - name: Install and test locked environment
@@ -109,10 +109,10 @@ jobs:
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           if (-not (Test-Path "$env:SystemRoot\py.exe")) {
-            throw "Python Launcher oficial ausente no runner Windows"
+            throw "Python Launcher ufficiale assente sul runner Windows"
           }
           & "$env:SystemRoot\py.exe" -3.13 -I -S -c "import sys; raise SystemExit(sys.version_info[:3] != (3,13,15))"
-          if ($LASTEXITCODE -ne 0) { throw "py.exe nao resolveu Python 3.13.15" }
+          if ($LASTEXITCODE -ne 0) { throw "py.exe non ha risolto Python 3.13.15" }
           $archive = "dist/ERITA-${{ github.ref_name }}-source-win64.zip"
           $smokeRoot = Join-Path $env:RUNNER_TEMP "erita-source-install-smoke"
           $smokeProfile = Join-Path $env:RUNNER_TEMP "erita-source-profile"
@@ -122,12 +122,12 @@ jobs:
           $env:ERPTBR_NONINTERACTIVE = "1"
           $env:ERPTBR_INSTALL_ONLY = "1"
           & (Join-Path $packageRoot.FullName "ERITA.cmd")
-          if ($LASTEXITCODE -ne 0) { throw "Smoke test real de ERITA.cmd falhou" }
-          $venvPython = Join-Path $smokeProfile "ERITA\venv-0.9.1\Scripts\python.exe"
-          $venvSite = Join-Path $smokeProfile "ERITA\venv-0.9.1\Lib\site-packages"
+          if ($LASTEXITCODE -ne 0) { throw "Smoke test reale di ERITA.cmd fallito" }
+          $venvPython = Join-Path $smokeProfile "ERITA\venv-0.9.3\Scripts\python.exe"
+          $venvSite = Join-Path $smokeProfile "ERITA\venv-0.9.3\Lib\site-packages"
           $sourceRoot = $packageRoot.FullName
           & $venvPython -I -S -c "import struct,sys,sysconfig; sys.path.extend((sys.argv[1],sys.argv[2])); import patcher.patcher_gui,tkinter,customtkinter; from Crypto.Cipher import AES; raise SystemExit(0 if sys.version_info[:3] == (3,13,15) and struct.calcsize('P') == 8 and sysconfig.get_platform().lower() == 'win-amd64' else 1)" $sourceRoot $venvSite
-          if ($LASTEXITCODE -ne 0) { throw "Smoke test isolado do ambiente instalado falhou" }
+          if ($LASTEXITCODE -ne 0) { throw "Smoke test isolato dell'ambiente installato fallito" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -144,6 +144,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: erita-source-release
@@ -160,9 +164,20 @@ jobs:
         run: |
           archive="dist/ERITA-${{ github.ref_name }}-source-win64.zip"
           test -f "$archive"
-          gh release create "${{ github.ref_name }}" "$archive" \
-            --repo "${{ github.repository }}" \
-            --verify-tag \
-            --generate-notes \
-            --prerelease \
-            --title "ERITA ${{ github.ref_name }}"
+          if test "$GITHUB_REF_NAME" = "v0.9.3"; then
+            notes="docs/RELEASE-0.9.3.md"
+            test -f "$notes"
+            gh release create "${{ github.ref_name }}" "$archive" \
+              --repo "${{ github.repository }}" \
+              --verify-tag \
+              --notes-file "$notes" \
+              --latest \
+              --title "ERITA ${{ github.ref_name }} — Hotfix di recupero"
+          else
+            gh release create "${{ github.ref_name }}" "$archive" \
+              --repo "${{ github.repository }}" \
+              --verify-tag \
+              --generate-notes \
+              --prerelease \
+              --title "ERITA ${{ github.ref_name }}"
+          fi

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Valida de forma independente a allowlist do release source-only."""
+"""Convalida in modo indipendente l'allowlist della release solo sorgente."""
 
 from __future__ import annotations
 
@@ -21,11 +21,14 @@ SOURCE_FILES = frozenset(
         "interno/ABRIR_INTERFACE.cmd",
         "README.md",
         "MIGRACAO.md",
+        "docs/INCIDENTE-0.9.1.md",
         "SECURITY.md",
         "THIRD_PARTY_NOTICES.md",
         "LICENSE",
         "patcher/__init__.py",
+        "patcher/bnk.py",
         "patcher/engine.py",
+        "patcher/diagnostics.py",
         "patcher/patch_data.py",
         "patcher/patcher_gui.py",
         "patcher/patcher.ico",
@@ -53,19 +56,19 @@ MAX_TOTAL_UNCOMPRESSED = 8 * 1024 * 1024
 MAX_TOTAL_COMPRESSED = 8 * 1024 * 1024
 MAX_ARCHIVE_SIZE = 8 * 1024 * 1024
 FORBIDDEN_SOURCE_PATTERNS = {
-    "exec(compile(": "execucao dinamica de codigo",
-    "taskkill": "encerramento forcado de processos",
-    "shellexecutew": "auto-elevacao UAC",
-    "pyinstaller": "empacotador executavel",
-    "nuitka": "empacotador executavel",
-    "invoke-expression": "execucao dinamica do PowerShell",
-    "-encodedcommand": "comando PowerShell codificado",
-    "-executionpolicy bypass": "contorno da politica do PowerShell",
-    "--ignore-security-hash": "contorno do hash de seguranca do WinGet",
-    "installallusers=1": "instalacao global com elevacao",
-    "-verb runas": "auto-elevacao UAC",
-    "http://": "download sem HTTPS",
-    "erita_dev_unsafe_skip_payload_pin": "bypass de desenvolvimento da validacao do payload",
+    "exec(compile(": "esecuzione dinamica di codice",
+    "taskkill": "terminazione forzata di processi",
+    "shellexecutew": "auto-elevazione UAC",
+    "pyinstaller": "impacchettatore eseguibile",
+    "nuitka": "impacchettatore eseguibile",
+    "invoke-expression": "esecuzione dinamica di PowerShell",
+    "-encodedcommand": "comando PowerShell codificato",
+    "-executionpolicy bypass": "aggiramento della policy di PowerShell",
+    "--ignore-security-hash": "aggiramento dell'hash di sicurezza di WinGet",
+    "installallusers=1": "installazione globale con elevazione",
+    "-verb runas": "auto-elevazione UAC",
+    "http://": "download senza HTTPS",
+    "erita_dev_unsafe_skip_payload_pin": "bypass di sviluppo della convalida del payload",
 }
 
 
@@ -78,7 +81,7 @@ def verify(path: str) -> None:
     try:
         metadata = archive_path.lstat()
     except OSError as exc:
-        raise SystemExit(f"Release ausente ou ilegivel: {archive_path}") from exc
+        raise SystemExit(f"Release assente o illeggibile: {archive_path}") from exc
     reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
     file_attributes = getattr(metadata, "st_file_attributes", 0)
     if (
@@ -86,31 +89,31 @@ def verify(path: str) -> None:
         or stat.S_ISLNK(metadata.st_mode)
         or bool(reparse_flag and file_attributes & reparse_flag)
     ):
-        raise SystemExit("O release precisa ser um arquivo regular, nao um link.")
+        raise SystemExit("La release deve essere un file regolare, non un link.")
     if metadata.st_size > MAX_ARCHIVE_SIZE:
-        raise SystemExit("O arquivo ZIP excede o limite fisico do release.")
+        raise SystemExit("Il file ZIP supera il limite fisico della release.")
 
     with contextlib.ExitStack() as stack:
         try:
             archive_stream = stack.enter_context(archive_path.open("rb"))
         except OSError as exc:
-            raise SystemExit(f"Release ausente ou ilegivel: {archive_path}") from exc
+            raise SystemExit(f"Release assente o illeggibile: {archive_path}") from exc
         opened = os.fstat(archive_stream.fileno())
         if (
             not stat.S_ISREG(opened.st_mode)
             or opened.st_size > MAX_ARCHIVE_SIZE
             or (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino)
         ):
-            raise SystemExit("O release mudou ou excede o limite antes da leitura.")
+            raise SystemExit("La release è cambiata o supera il limite prima della lettura.")
         archive = stack.enter_context(zipfile.ZipFile(archive_stream, "r"))
         infos = archive.infolist()
         if len(infos) != len(EXPECTED_FILES):
-            raise SystemExit("O ZIP contem uma quantidade inesperada de membros.")
+            raise SystemExit("Lo ZIP contiene una quantità inaspettata di membri.")
         names = [info.filename for info in infos]
         if not names or len(names) != len(set(names)):
-            raise SystemExit("O ZIP esta vazio ou contem nomes duplicados.")
+            raise SystemExit("Lo ZIP è vuoto o contiene nomi duplicati.")
         if len(names) != len({name.casefold() for name in names}):
-            raise SystemExit("O ZIP contem nomes duplicados por diferenca de caixa.")
+            raise SystemExit("Lo ZIP contiene nomi duplicati per differenza di maiuscole.")
 
         roots: set[str] = set()
         relative_names: set[str] = set()
@@ -128,47 +131,47 @@ def verify(path: str) -> None:
                 or ":" in name
                 or len(pure.parts) < 2
             ):
-                raise SystemExit(f"Caminho inseguro no release: {name}")
+                raise SystemExit(f"Percorso non sicuro nella release: {name}")
             roots.add(pure.parts[0])
             relative = PurePosixPath(*pure.parts[1:]).as_posix()
             folded_relative = relative.casefold()
             if folded_relative in relative_casefolds:
-                raise SystemExit(f"Destino relativo duplicado no release: {relative}")
+                raise SystemExit(f"Destinazione relativa duplicata nella release: {relative}")
             relative_names.add(relative)
             relative_casefolds.add(folded_relative)
             members[relative] = info
 
             if info.flag_bits & 0x1:
-                raise SystemExit(f"Membro criptografado proibido no release: {name}")
+                raise SystemExit(f"Membro cifrato proibito nella release: {name}")
             if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
-                raise SystemExit(f"Compressao inesperada no release: {name}")
+                raise SystemExit(f"Compressione inaspettata nella release: {name}")
             if info.file_size > MAX_MEMBER_SIZE or info.compress_size > MAX_MEMBER_SIZE:
-                raise SystemExit(f"Membro grande demais no release: {name}")
+                raise SystemExit(f"Membro troppo grande nella release: {name}")
             total_uncompressed += info.file_size
             total_compressed += info.compress_size
             if (
                 total_uncompressed > MAX_TOTAL_UNCOMPRESSED
                 or total_compressed > MAX_TOTAL_COMPRESSED
             ):
-                raise SystemExit("O tamanho total declarado do release excede o limite.")
+                raise SystemExit("La dimensione totale dichiarata della release supera il limite.")
             unix_mode = (info.external_attr >> 16) & 0xFFFF
             file_type = stat.S_IFMT(unix_mode)
             if info.is_dir() or file_type not in (0, stat.S_IFREG):
-                raise SystemExit(f"Link/diretorio/arquivo especial proibido: {name}")
+                raise SystemExit(f"Link/directory/file speciale proibito: {name}")
             if pure.suffix.casefold() in FORBIDDEN_SUFFIXES:
-                raise SystemExit(f"Binario/script proibido no release: {name}")
+                raise SystemExit(f"Binario/script proibito nella release: {name}")
 
         if len(roots) != 1:
-            raise SystemExit("O ZIP precisa ter uma unica pasta raiz.")
+            raise SystemExit("Lo ZIP deve avere un'unica cartella radice.")
         root = next(iter(roots))
         match = re.fullmatch(r"ERITA-v(\d+\.\d+\.\d+)", root)
         if not match:
-            raise SystemExit(f"Pasta raiz inesperada no release: {root!r}")
+            raise SystemExit(f"Cartella radice inaspettata nella release: {root!r}")
         if relative_names != EXPECTED_FILES:
             missing = sorted(EXPECTED_FILES - relative_names)
             extra = sorted(relative_names - EXPECTED_FILES)
             raise SystemExit(
-                f"Allowlist do release divergente; ausentes={missing}, extras={extra}"
+                f"Allowlist della release divergente; mancanti={missing}, extra={extra}"
             )
         root_commands = sorted(
             relative
@@ -178,7 +181,7 @@ def verify(path: str) -> None:
         )
         if root_commands != ["ERITA.cmd"]:
             raise SystemExit(
-                "O release precisa expor somente ERITA.cmd na pasta principal."
+                "La release deve esporre solo ERITA.cmd nella cartella principale."
             )
 
         # Force decompression and CRC validation for every allowlisted member,
@@ -190,7 +193,7 @@ def verify(path: str) -> None:
             }
         except (OSError, EOFError, RuntimeError, zipfile.BadZipFile, zlib.error) as exc:
             raise SystemExit(
-                "Falha de integridade, descompressao ou CRC em membro do release."
+                "Errore di integrità, decompressione o CRC in un membro della release."
             ) from exc
 
         for relative in SOURCE_FILES:
@@ -199,17 +202,17 @@ def verify(path: str) -> None:
             try:
                 source = member_bytes[relative].decode("utf-8")
             except UnicodeDecodeError as exc:
-                raise SystemExit(f"Fonte nao UTF-8 no release: {relative}") from exc
+                raise SystemExit(f"Sorgente non UTF-8 nella release: {relative}") from exc
             folded_source = source.casefold()
             for pattern, label in FORBIDDEN_SOURCE_PATTERNS.items():
                 if pattern in folded_source:
-                    raise SystemExit(f"{label} encontrado em {relative}: {pattern}")
+                    raise SystemExit(f"{label} trovato in {relative}: {pattern}")
 
         for relative, expected in WHEEL_SHA256.items():
             actual = _sha256(member_bytes[relative])
             if actual != expected:
                 raise SystemExit(
-                    f"SHA-256 incorreto para {relative}: esperado {expected}, obtido {actual}"
+                    f"SHA-256 errato per {relative}: atteso {expected}, ottenuto {actual}"
                 )
 
         one_click = member_bytes["ERITA.cmd"].decode("utf-8")
@@ -240,11 +243,11 @@ def verify(path: str) -> None:
         ]
         if missing_controls:
             raise SystemExit(
-                f"Controles obrigatorios ausentes do instalador: {missing_controls}"
+                f"Controlli obbligatori assenti dall'installer: {missing_controls}"
             )
         if 'Scripts\\pythonw.exe" -I -S -c' not in launcher:
             raise SystemExit(
-                "O launcher nao inicia o Python sem processamento automatico de site."
+                "Il launcher non avvia Python senza l'elaborazione automatica del site."
             )
         if (
             "%LOCALAPPDATA%\\Programs\\Python\\Launcher\\py.exe" not in launcher
@@ -266,7 +269,7 @@ def verify(path: str) -> None:
             not in launcher
         ):
             raise SystemExit(
-                "O launcher nao valida a compatibilidade do Python e do venv."
+                "Il launcher non convalida la compatibilità di Python e del venv."
             )
 
         required_one_click_controls = (
@@ -294,6 +297,8 @@ def verify(path: str) -> None:
             'if not exist "%ERPT_WINGET%" goto :install_direct',
             "interno\\INSTALAR_AMBIENTE.cmd",
             "interno\\ABRIR_INTERFACE.cmd",
+            "patcher\\bnk.py",
+            "patcher\\diagnostics.py",
             'call "%~dp0interno\\ABRIR_INTERFACE.cmd"',
             "if defined ERPTBR_INSTALL_ONLY goto :success_install_only",
             "Local\\ERITA_Installer_",
@@ -305,18 +310,18 @@ def verify(path: str) -> None:
         ]
         if missing_one_click:
             raise SystemExit(
-                "Controles obrigatorios ausentes da instalacao de um clique: "
+                "Controlli obbligatori assenti dall'installazione con un clic: "
                 f"{missing_one_click}"
             )
         if one_click.count("goto :install_direct") != 1:
             raise SystemExit(
-                "O fallback direto so pode ser alcancado quando o WinGet esta ausente."
+                "Il fallback diretto è raggiungibile solo quando WinGet è assente."
             )
         for relative, expected in WHEEL_SHA256.items():
             bootstrap_relative = relative.replace("/", "\\")
             if bootstrap_relative not in one_click or expected not in one_click:
                 raise SystemExit(
-                    f"Preflight do bootstrap nao fixa nome/hash de {relative}."
+                    f"Il preflight del bootstrap non fissa nome/hash di {relative}."
                 )
         preflight_order = (
             one_click.find("rem Rifiuta lo ZIP automatico"),
@@ -328,7 +333,7 @@ def verify(path: str) -> None:
             and preflight_order[0] < preflight_order[1] < preflight_order[2]
         ):
             raise SystemExit(
-                "O pacote precisa ser autenticado antes de instalar o Python."
+                "Il pacchetto deve essere autenticato prima di installare Python."
             )
         authentication_order = (
             one_click.find(
@@ -347,7 +352,7 @@ def verify(path: str) -> None:
             < authentication_order[2]
         ):
             raise SystemExit(
-                "Hash e assinatura precisam anteceder a execucao do instalador oficial."
+                "Hash e firma devono precedere l'esecuzione dell'installer ufficiale."
             )
 
         version = match.group(1)
@@ -356,12 +361,12 @@ def verify(path: str) -> None:
         if f'__version__ = "{version}"' not in init_source or (
             f'PATCHER_VERSION = "{version}"' not in gui_source
         ):
-            raise SystemExit("Versao da pasta raiz diverge do codigo empacotado.")
+            raise SystemExit("La versione della cartella radice diverge dal codice impacchettato.")
         lock_source = member_bytes["patcher/requirements-win64.lock"].decode("utf-8")
         for expected in WHEEL_SHA256.values():
             if f"--hash=sha256:{expected}" not in lock_source:
                 raise SystemExit(
-                    f"Hash de wheel ausente do requirements-win64.lock: {expected}"
+                    f"Hash del wheel assente da requirements-win64.lock: {expected}"
                 )
 
 
@@ -370,7 +375,7 @@ def main() -> int:
     parser.add_argument("archive")
     args = parser.parse_args()
     verify(args.archive)
-    print("Release source verificado por allowlist e hashes.")
+    print("Release sorgente verificata per allowlist e hash.")
     return 0
 
 

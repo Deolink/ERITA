@@ -7,6 +7,7 @@ aver validato tutti i dati e creato un backup transazionale della build attuale.
 
 from __future__ import annotations
 
+import bisect
 import copy
 import hashlib
 import json
@@ -21,6 +22,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO, Callable, Iterable, Sequence
+
+try:
+    from .bnk import BnkMergeError, merge_bnk_with_vanilla
+except ImportError:  # pragma: no cover - suporte a execucao direta da interface
+    from bnk import BnkMergeError, merge_bnk_with_vanilla
 
 
 ELDEN_RING_SD_KEY_PEM = """-----BEGIN RSA PUBLIC KEY-----
@@ -228,6 +234,7 @@ class Archive:
     bdt_size: int
     bdt_mtime_ns: int
     entries: tuple[FileEntry, ...]
+    salt: bytes = b""
 
 
 @dataclass(frozen=True)
@@ -356,8 +363,7 @@ def rsa_decrypt_bhd(encrypted: bytes, pem_key: str = ELDEN_RING_SD_KEY_PEM) -> b
     return bytes(result)
 
 
-def parse_bhd5(data: bytes, bdt_size: int | None = None) -> tuple[FileEntry, ...]:
-    """Legge le voci necessarie di un BHD5 con validazione dei limiti."""
+def _validated_bhd5_data_and_salt(data: bytes) -> tuple[bytes, bytes]:
     _require_slice(data, 0, 32, "intestazione")
     if data[:4] != b"BHD5":
         raise CompatibilityError(f"Formato BHD sconosciuto: {data[:4]!r}.")
@@ -380,13 +386,271 @@ def parse_bhd5(data: bytes, bdt_size: int | None = None) -> tuple[FileEntry, ...
         raise CompatibilityError(f"BHD5 con salt_length non valido: {salt_length}.")
     # RSA block decoding may append zero padding after the logical BHD size.
     # All subsequent offsets are constrained to the declared logical file.
-    data = data[:declared_size]
+    logical_data = data[:declared_size]
+    return logical_data, logical_data[28 : 28 + salt_length]
+
+
+def parse_bhd5_salt(data: bytes) -> bytes:
+    """Return the exact salt used by BHD5 per-entry SHA-256 metadata."""
+
+    _logical_data, salt = _validated_bhd5_data_and_salt(data)
+    return salt
+
+
+def calculate_bhd5_salted_sha256(
+    slot_data: bytes,
+    salt: bytes,
+    ranges: Sequence[AESRange],
+) -> bytes:
+    """Hash BHD5 ranges in declaration order, followed by the archive salt."""
+
+    digest = hashlib.sha256()
+    for index, item in enumerate(ranges):
+        if item.start_offset == -1 or item.end_offset == -1:
+            continue
+        if (
+            item.start_offset < 0
+            or item.end_offset < item.start_offset
+            or item.end_offset > len(slot_data)
+        ):
+            raise CompatibilityError(
+                f"Range SHA[{index}] fora do slot de destino "
+                f"({item.start_offset}..{item.end_offset}, slot={len(slot_data)})."
+            )
+        digest.update(slot_data[item.start_offset : item.end_offset])
+    digest.update(salt)
+    return digest.digest()
+
+
+def validate_patch_plan_sha_integrity(plan: PatchPlan) -> None:
+    """Read-only guard for BHD5 salted hashes affected by a patch plan.
+
+    The hashes cover selected ranges of the encrypted bytes stored in the BDT,
+    not the decrypted logical file.  Validate the complete current BDT baseline
+    first, then overlay the prepared writes in memory and reject a plan that
+    would make any declared digest stale.  Nothing is written by this function.
+    """
+
+    writes_by_archive: dict[Path, list[PreparedWrite]] = {}
+    for write in plan.writes:
+        if sha256_file(write.replacement.source_path) != write.source_sha256:
+            raise PatcherError(
+                "Il payload è cambiato durante la verifica di integrità: "
+                f"{write.replacement.source_relative}. Nessun file è stato modificato."
+            )
+        writes_by_archive.setdefault(write.target.archive.bdt_path, []).append(write)
+
+    for archive_path, archive_writes in writes_by_archive.items():
+        archive = archive_writes[0].target.archive
+        if any(item.target.archive != archive for item in archive_writes[1:]):
+            raise CompatibilityError(
+                f"Il piano ha metadati divergenti per {archive_path.name}. "
+                "Nessun file è stato modificato."
+            )
+
+        intervals = sorted(
+            (
+                (
+                    write.target.entry.file_offset,
+                    write.target.entry.file_offset
+                    + write.target.entry.padded_file_size,
+                    write,
+                )
+                for write in archive_writes
+            ),
+            key=lambda item: item[0],
+        )
+        previous_end = -1
+        for start, end, write in intervals:
+            if start < previous_end:
+                raise CompatibilityError(
+                    f"Il piano ha scritture sovrapposte in {archive_path.name}: "
+                    f"{write.replacement.source_relative}. Nessun file è stato modificato."
+                )
+            previous_end = end
+        write_starts = [item[0] for item in intervals]
+        write_ends = [item[1] for item in intervals]
+
+        try:
+            before = archive_path.lstat()
+        except OSError as exc:
+            raise CompatibilityError(
+                f"Impossibile verificare {archive_path.name}: {exc}. "
+                "Nessun file è stato modificato."
+            ) from exc
+        if (
+            _metadata_is_link_or_reparse(before)
+            or not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size != archive.bdt_size
+            or before.st_mtime_ns != archive.bdt_mtime_ns
+        ):
+            raise CompatibilityError(
+                f"{archive_path.name} è cambiato oppure non è un file regolare esclusivo; "
+                "riprova. Nessun file è stato modificato."
+            )
+
+        try:
+            stream = archive_path.open("rb")
+        except OSError as exc:
+            raise CompatibilityError(
+                f"Impossibile leggere {archive_path.name}: {exc}. "
+                "Nessun file è stato modificato."
+            ) from exc
+        try:
+            opened = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or opened.st_size != archive.bdt_size
+                or opened.st_mtime_ns != archive.bdt_mtime_ns
+                or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+            ):
+                raise CompatibilityError(
+                    f"{archive_path.name} è cambiato durante l'apertura; riprova. "
+                    "Nessun file è stato modificato."
+                )
+
+            for entry in archive.entries:
+                sha_info = entry.sha_info
+                if sha_info is None:
+                    continue
+                if len(sha_info.hash_bytes) != hashlib.sha256().digest_size:
+                    raise CompatibilityError(
+                        f"Metadato SHA non valido in {archive_path.name}, voce "
+                        f"0x{entry.file_name_hash:016x}. Nessun file è stato modificato."
+                    )
+
+                current_digest = hashlib.sha256()
+                planned_digest = hashlib.sha256()
+                changed_by: str | None = None
+                prepared_cache: dict[int, bytes] = {}
+                for range_index, item in enumerate(sha_info.ranges):
+                    if item.start_offset == -1 or item.end_offset == -1:
+                        continue
+                    if (
+                        item.start_offset < 0
+                        or item.end_offset < item.start_offset
+                        or item.end_offset > entry.padded_file_size
+                    ):
+                        raise CompatibilityError(
+                            f"Range SHA[{range_index}] non valido in {archive_path.name}, "
+                            f"voce 0x{entry.file_name_hash:016x}. "
+                            "Nessun file è stato modificato."
+                        )
+
+                    absolute = entry.file_offset + item.start_offset
+                    range_end = entry.file_offset + item.end_offset
+                    while absolute < range_end:
+                        length = min(COPY_BUFFER_SIZE, range_end - absolute)
+                        stream.seek(absolute)
+                        current_chunk = stream.read(length)
+                        if len(current_chunk) != length:
+                            raise CompatibilityError(
+                                f"Lettura incompleta di {archive_path.name} nella voce "
+                                f"0x{entry.file_name_hash:016x}. "
+                                "Nessun file è stato modificato."
+                            )
+                        planned_chunk = bytearray(current_chunk)
+                        chunk_end = absolute + length
+                        write_index = bisect.bisect_right(write_ends, absolute)
+                        while (
+                            write_index < len(intervals)
+                            and write_starts[write_index] < chunk_end
+                        ):
+                            write_start, write_end, write = intervals[write_index]
+                            overlap_start = max(absolute, write_start)
+                            overlap_end = min(chunk_end, write_end)
+                            if overlap_start < overlap_end:
+                                prepared = prepared_cache.get(write_index)
+                                if prepared is None:
+                                    source_data = write.replacement.source_path.read_bytes()
+                                    if (
+                                        hashlib.sha256(source_data).hexdigest()
+                                        != write.source_sha256
+                                    ):
+                                        raise PatcherError(
+                                            "Il payload è cambiato durante la verifica di "
+                                            f"integrità: {write.replacement.source_relative}. "
+                                            "Nessun file è stato modificato."
+                                        )
+                                    prepared = prepare_slot(
+                                        source_data,
+                                        write.replacement.source_path.suffix,
+                                        write.target.entry,
+                                    )
+                                    del source_data
+                                    prepared_cache[write_index] = prepared
+                                destination_start = overlap_start - absolute
+                                source_start = overlap_start - write_start
+                                replacement = prepared[
+                                    source_start : source_start
+                                    + (overlap_end - overlap_start)
+                                ]
+                                destination_end = destination_start + len(replacement)
+                                if (
+                                    planned_chunk[destination_start:destination_end]
+                                    != replacement
+                                ):
+                                    changed_by = (
+                                        changed_by
+                                        or write.replacement.source_relative
+                                    )
+                                    planned_chunk[
+                                        destination_start:destination_end
+                                    ] = replacement
+                            write_index += 1
+
+                        current_digest.update(current_chunk)
+                        planned_digest.update(planned_chunk)
+                        absolute = chunk_end
+
+                current_digest.update(archive.salt)
+                planned_digest.update(archive.salt)
+                if current_digest.digest() != sha_info.hash_bytes:
+                    raise CompatibilityError(
+                        f"Integrità SHA salted non valida in {archive_path.name}, voce "
+                        f"0x{entry.file_name_hash:016x}: il BDT attuale non corrisponde al "
+                        "BHD. Nessun file è stato modificato."
+                    )
+                if changed_by is not None and planned_digest.digest() != sha_info.hash_bytes:
+                    raise CompatibilityError(
+                        f"La patch modificherebbe un range SHA autenticato in "
+                        f"{archive_path.name}, voce 0x{entry.file_name_hash:016x} "
+                        f"({changed_by}). L'installazione diretta non è sicura per questo "
+                        "build. Nessun file è stato modificato."
+                    )
+
+            opened_after = os.fstat(stream.fileno())
+            current = archive_path.lstat()
+            if (
+                _metadata_is_link_or_reparse(current)
+                or not stat.S_ISREG(current.st_mode)
+                or current.st_nlink != 1
+                or opened_after.st_size != archive.bdt_size
+                or opened_after.st_mtime_ns != archive.bdt_mtime_ns
+                or (opened_after.st_dev, opened_after.st_ino)
+                != (opened.st_dev, opened.st_ino)
+                or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino)
+            ):
+                raise CompatibilityError(
+                    f"{archive_path.name} è cambiato durante la verifica; riprova. "
+                    "Nessun file è stato modificato."
+                )
+        finally:
+            stream.close()
+
+
+def parse_bhd5(data: bytes, bdt_size: int | None = None) -> tuple[FileEntry, ...]:
+    """Le as entradas necessarias de um BHD5 com validacao de limites."""
+
+    data, _salt = _validated_bhd5_data_and_salt(data)
 
     bucket_count = _read_i32(data, 16, "bucket_count")
     buckets_offset = _read_i32(data, 20, "buckets_offset")
     if bucket_count < 0 or bucket_count > 1_000_000:
         raise CompatibilityError(f"BHD non valido: bucket_count={bucket_count}.")
-    if buckets_offset < 28 + salt_length:
+    if buckets_offset < 28 + len(_salt):
         raise CompatibilityError("BHD non valido: buckets_offset si sovrappone al salt.")
     _require_slice(data, buckets_offset, bucket_count * 8, "tabella dei bucket")
 
@@ -561,6 +825,44 @@ def encrypt_aes_ecb(
     return data
 
 
+def decrypt_aes_ecb(
+    data: bytearray, key: bytes, ranges: Sequence[AESRange]
+) -> bytearray:
+    """Decrypt the BHD-declared ranges of one complete BDT slot in place."""
+
+    if len(key) != 16:
+        raise CompatibilityError(f"Chave AES invalida ({len(key)} bytes).")
+    for item in ranges:
+        if item.start_offset == -1 or item.end_offset == -1:
+            continue
+        if (
+            item.start_offset < 0
+            or item.end_offset < item.start_offset
+            or item.end_offset > len(data)
+        ):
+            raise CompatibilityError("Range AES fora do slot de origem.")
+        if (item.end_offset - item.start_offset) % 16:
+            raise CompatibilityError("Il range AES deve avere dimensione multipla di 16 byte.")
+
+    try:
+        from Crypto.Cipher import AES
+    except ImportError as exc:  # pragma: no cover - dipende dall'installazione locale
+        raise PatcherError(
+            "Dipendenza PyCryptodome assente. Esegui di nuovo ERITA.cmd."
+        ) from exc
+    cipher = AES.new(key, AES.MODE_ECB)
+    for item in ranges:
+        if item.start_offset == -1 or item.end_offset == -1:
+            continue
+        length = item.end_offset - item.start_offset
+        if length:
+            start = item.start_offset
+            data[start : start + length] = cipher.decrypt(
+                bytes(data[start : start + length])
+            )
+    return data
+
+
 def prepare_slot(source_data: bytes, source_suffix: str, entry: FileEntry) -> bytes:
     suffix = source_suffix.lower()
     if suffix == ".wem":
@@ -584,6 +886,29 @@ def prepare_slot(source_data: bytes, source_suffix: str, entry: FileEntry) -> by
     if entry.aes_info and entry.aes_info.ranges:
         encrypt_aes_ecb(result, entry.aes_info.key, entry.aes_info.ranges)
     return bytes(result)
+
+
+def prepare_bnk_slot_from_baseline(
+    source_data: bytes,
+    encrypted_baseline_slot: bytes,
+    entry: FileEntry,
+) -> bytes:
+    """Merge a payload BNK into the decrypted vanilla staging-slot baseline."""
+
+    if len(encrypted_baseline_slot) != entry.padded_file_size:
+        raise CompatibilityError(
+            "Lettura incompleta dello slot BNK vanilla "
+            f"({len(encrypted_baseline_slot)}/{entry.padded_file_size} bytes)."
+        )
+    baseline = bytearray(encrypted_baseline_slot)
+    if entry.aes_info and entry.aes_info.ranges:
+        decrypt_aes_ecb(baseline, entry.aes_info.key, entry.aes_info.ranges)
+    vanilla = bytes(baseline[: entry.unpadded_file_size])
+    try:
+        merged = merge_bnk_with_vanilla(vanilla, source_data)
+    except BnkMergeError as exc:
+        raise CompatibilityError(f"Impossibile unire il BNK con il vanilla: {exc}") from exc
+    return prepare_slot(merged, ".bnk", entry)
 
 
 def sha256_file(path: Path, callback: Callable[[int], None] | None = None) -> str:
@@ -2542,6 +2867,7 @@ class PatchEngine:
                 bdt_size=bdt_size,
                 bdt_mtime_ns=bdt_mtime_ns,
                 entries=entries,
+                salt=parse_bhd5_salt(decrypted),
             )
             archives.append(archive)
             for entry in entries:
@@ -2806,6 +3132,7 @@ class PatchEngine:
         progress: Callable[[int, int], None] | None,
     ) -> tuple[int, int]:
         self._validate_plan_snapshot(plan.touched_archives)
+        validate_patch_plan_sha_integrity(plan)
         manifest, _created, pre_hashes = manager.prepare()
         records = {record["bdt"]: record for record in manifest["archives"]}
         newly_touched = {archive.bdt_path for archive in plan.touched_archives}

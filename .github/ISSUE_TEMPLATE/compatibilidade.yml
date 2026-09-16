@@ -1,0 +1,125 @@
+name: "Errore audio, compatibilità o installazione"
+description: "Segnala audio mancante, versione non riconosciuta, installazione bloccata o ripristino fallito."
+title: "[Compatibilità]: "
+labels:
+  - "bug"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie per aiutare a migliorare ERITA.
+
+        Questa segnalazione e tutto ciò che vi viene allegato saranno **pubblici**. L'installer non invia dati automaticamente: decidi tu cosa copiare, salvare o allegare. Prima di pubblicare, rivedi la diagnostica e rimuovi qualsiasi dato personale che trovi.
+
+  - type: input
+    id: erpt_br_version
+    attributes:
+      label: "Versione di ERITA"
+      description: "Indica la versione mostrata nell'installer o nel nome del file scaricato."
+      placeholder: "Es.: 0.9.3"
+    validations:
+      required: true
+
+  - type: input
+    id: game_version
+    attributes:
+      label: "Versione di Elden Ring"
+      description: "Indica la versione mostrata nel menu principale del gioco."
+      placeholder: "Es.: 1.17.0"
+    validations:
+      required: true
+
+  - type: input
+    id: steam_build_id
+    attributes:
+      label: "Steam BuildID"
+      description: "Se l'installer ha mostrato un BuildID, copia il numero. Altrimenti scrivi 'non identificato'."
+      placeholder: "Es.: 25080141 oppure non identificato"
+    validations:
+      required: true
+
+  - type: input
+    id: windows_version
+    attributes:
+      label: "Versione di Windows"
+      description: "Premi Win + R, digita winver e copia la versione mostrata."
+      placeholder: "Es.: Windows 11 24H2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stopped_stage
+    attributes:
+      label: "A quale fase si è fermato?"
+      description: "Scegli l'opzione più simile a quanto accaduto."
+      options:
+        - "Rilevamento della cartella del gioco"
+        - "Convalida della versione o del BuildID"
+        - "Caricamento dei file del gioco"
+        - "Analisi o pianificazione dell'installazione"
+        - "Creazione del backup"
+        - "Applicazione della patch"
+        - "Verifica finale"
+        - "Ripristino del backup"
+        - "Nel gioco: audio o clic mancanti"
+        - "Non so o altra fase"
+    validations:
+      required: true
+
+  - type: textarea
+    id: last_status
+    attributes:
+      label: "Ultimo stato o messaggio di errore"
+      description: "Copia esattamente l'ultimo messaggio mostrato dall'installer."
+      placeholder: "Incolla qui il messaggio completo apparso."
+    validations:
+      required: true
+
+  - type: input
+    id: stalled_duration
+    attributes:
+      label: "Per quanto tempo è rimasto bloccato?"
+      description: "Se c'è stato un errore immediato, scrivi 'immediato'."
+      placeholder: "Es.: 10 minuti oppure immediato"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Come riprodurre il problema"
+      description: "Racconta, in ordine, cosa hai fatto finché non è comparso il problema."
+      placeholder: |
+        1. Ho aperto l'installer...
+        2. Ho selezionato...
+        3. Ho cliccato su...
+        4. L'installer si è fermato a...
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: "Diagnostica generata dall'installer"
+      description: "Incolla qui la diagnostica o trascina il file salvato in questa casella. Non inviare salvataggi né file del gioco."
+      placeholder: "Incolla qui la diagnostica o trascina il file per allegarlo."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: "Informazioni aggiuntive"
+      description: "Facoltativo: includi qualsiasi dettaglio utile, senza dati personali."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy_confirmation
+    attributes:
+      label: "Privacy"
+      options:
+        - label: "Ho rivisto la diagnostica e gli allegati e ho rimosso nomi, percorsi personali, e-mail, account, token e altri dati privati."
+          required: true
+        - label: "Capisco che questa segnalazione e i suoi allegati saranno pubblici su GitHub."
+          required: true

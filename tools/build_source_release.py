@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Monta um ZIP deterministico contendo somente fonte e wheels verificados."""
+"""Costruisce uno ZIP deterministico contenente solo sorgente e wheel verificati."""
 
 from __future__ import annotations
 
@@ -19,11 +19,14 @@ SOURCE_FILES = (
     "interno/ABRIR_INTERFACE.cmd",
     "README.md",
     "MIGRACAO.md",
+    "docs/INCIDENTE-0.9.1.md",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
     "LICENSE",
     "patcher/__init__.py",
+    "patcher/bnk.py",
     "patcher/engine.py",
+    "patcher/diagnostics.py",
     "patcher/patch_data.py",
     "patcher/patcher_gui.py",
     "patcher/patcher.ico",
@@ -59,7 +62,7 @@ def require_regular_file(path: Path) -> None:
         metadata = path.lstat()
     except OSError as exc:
         raise SystemExit(
-            f"Arquivo obrigatorio ausente ou ilegivel: {path}: {exc}"
+            f"File obbligatorio assente o illeggibile: {path}: {exc}"
         ) from exc
     reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
     file_attributes = getattr(metadata, "st_file_attributes", 0)
@@ -68,7 +71,7 @@ def require_regular_file(path: Path) -> None:
         or stat.S_ISLNK(metadata.st_mode)
         or bool(reparse_flag and file_attributes & reparse_flag)
     ):
-        raise SystemExit(f"Arquivo obrigatorio nao e regular: {path}")
+        raise SystemExit(f"Il file obbligatorio non è regolare: {path}")
 
 
 def release_bytes(path: Path) -> bytes:
@@ -80,14 +83,14 @@ def release_bytes(path: Path) -> bytes:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise SystemExit(f"Script CMD nao UTF-8: {path}") from exc
+        raise SystemExit(f"Script CMD non UTF-8: {path}") from exc
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     return normalized.replace("\n", "\r\n").encode("utf-8")
 
 
 def build(root: Path, wheelhouse: Path, output: Path, version: str) -> None:
     if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
-        raise SystemExit(f"Versao invalida: {version!r}")
+        raise SystemExit(f"Versione non valida: {version!r}")
     plain_version = version.removeprefix("v")
     init_source = (root / "patcher/__init__.py").read_text(encoding="utf-8")
     gui_source = (root / "patcher/patcher_gui.py").read_text(encoding="utf-8")
@@ -99,7 +102,7 @@ def build(root: Path, wheelhouse: Path, output: Path, version: str) -> None:
         or {init_match.group(1), gui_match.group(1)} != {plain_version}
     ):
         raise SystemExit(
-            "A tag, patcher.__version__ e PATCHER_VERSION precisam coincidir."
+            "Il tag, patcher.__version__ e PATCHER_VERSION devono coincidere."
         )
     for command_file in (
         "interno/INSTALAR_AMBIENTE.cmd",
@@ -107,7 +110,7 @@ def build(root: Path, wheelhouse: Path, output: Path, version: str) -> None:
     ):
         content = (root / command_file).read_text(encoding="utf-8")
         if f"venv-{plain_version}" not in content:
-            raise SystemExit(f"Versao do ambiente desatualizada em {command_file}.")
+            raise SystemExit(f"Versione dell'ambiente non aggiornata in {command_file}.")
     package_root = f"ERITA-{version}"
     members: list[tuple[str, bytes]] = []
     for relative in SOURCE_FILES:
@@ -119,18 +122,18 @@ def build(root: Path, wheelhouse: Path, output: Path, version: str) -> None:
     if actual_wheels != set(WHEELS):
         missing = sorted(set(WHEELS) - actual_wheels)
         extra = sorted(actual_wheels - set(WHEELS))
-        raise SystemExit(f"Wheelhouse divergente; ausentes={missing}, extras={extra}")
+        raise SystemExit(f"Wheelhouse divergente; mancanti={missing}, extra={extra}")
     for name, expected in WHEELS.items():
         wheel = wheelhouse / name
         require_regular_file(wheel)
         actual = sha256(wheel)
         if actual != expected:
-            raise SystemExit(f"SHA-256 incorreto para {name}: {actual}")
+            raise SystemExit(f"SHA-256 errato per {name}: {actual}")
         members.append((f"{package_root}/wheelhouse/{name}", wheel.read_bytes()))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     if os.path.lexists(output):
-        raise SystemExit(f"O artefato de saida ja existe e foi preservado: {output}")
+        raise SystemExit(f"L'artefatto di output esiste già ed è stato preservato: {output}")
     temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex}.tmp")
     temporary_identity: tuple[int, int] | None = None
     try:
@@ -140,14 +143,14 @@ def build(root: Path, wheelhouse: Path, output: Path, version: str) -> None:
             metadata = temporary.lstat()
             temporary_identity = (metadata.st_dev, metadata.st_ino)
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-                raise SystemExit(f"Scratch de release inseguro: {temporary}")
+                raise SystemExit(f"Scratch di release non sicuro: {temporary}")
             for name, data in sorted(members):
                 if name.casefold().endswith(".exe"):
-                    raise SystemExit(f"Executavel proibido no release: {name}")
+                    raise SystemExit(f"Eseguibile proibito nella release: {name}")
                 archive.writestr(zip_info(name), data)
         if os.path.lexists(output):
             raise SystemExit(
-                f"O artefato de saida apareceu durante o build e foi preservado: {output}"
+                f"L'artefatto di output è apparso durante il build ed è stato preservato: {output}"
             )
         os.rename(temporary, output)
     finally:
@@ -179,7 +182,7 @@ def main() -> int:
         args.output.resolve(),
         args.version,
     )
-    print(f"Criado: {args.output} ({sha256(args.output)})")
+    print(f"Creato: {args.output} ({sha256(args.output)})")
     return 0
 
 

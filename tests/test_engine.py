@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -43,6 +44,49 @@ def make_bhd(entries: list[tuple[int, int, int, int]]) -> bytes:
             0,
             0,
         )
+    return bytes(data)
+
+
+def make_bhd_with_sha(
+    entries: list[
+        tuple[int, int, int, int, bytes, tuple[tuple[int, int], ...]]
+    ],
+    salt: bytes,
+) -> bytes:
+    """Build a plain BHD5 whose entries contain salted SHA metadata."""
+
+    buckets_offset = 28 + len(salt)
+    entries_offset = buckets_offset + 8
+    data = bytearray(entries_offset + 40 * len(entries))
+    data[:4] = b"BHD5"
+    data[4] = 0xFF
+    struct.pack_into("<i", data, 8, 1)
+    struct.pack_into("<i", data, 16, 1)
+    struct.pack_into("<i", data, 20, buckets_offset)
+    struct.pack_into("<i", data, 24, len(salt))
+    data[28 : 28 + len(salt)] = salt
+    struct.pack_into("<ii", data, buckets_offset, len(entries), entries_offset)
+
+    for index, (path_hash, padded, unpadded, offset, digest, ranges) in enumerate(
+        entries
+    ):
+        sha_offset = len(data)
+        data.extend(digest)
+        data.extend(struct.pack("<i", len(ranges)))
+        for start, end in ranges:
+            data.extend(struct.pack("<qq", start, end))
+        struct.pack_into(
+            "<Qiiqqq",
+            data,
+            entries_offset + index * 40,
+            path_hash,
+            padded,
+            unpadded,
+            offset,
+            sha_offset,
+            0,
+        )
+    struct.pack_into("<i", data, 12, len(data))
     return bytes(data)
 
 
@@ -406,8 +450,8 @@ class PatchEngineTests(unittest.TestCase):
             payload_dir = root / "payload"
             (payload_dir / "enus").mkdir(parents=True)
             (payload_dir / "voice.bnk").write_bytes(b"VOICE")
-            # O zero final produz o mesmo slot preenchido que b"VOICE", mas o
-            # arquivo-fonte nao e byte-identico e deve continuar sendo recusado.
+            # Lo zero finale produce lo stesso slot riempito di b"VOICE", ma il
+            # file sorgente non è identico byte per byte e deve restare rifiutato.
             (payload_dir / "enus" / "voice.bnk").write_bytes(b"VOICE\0")
             patcher = engine.PatchEngine(game_dir, backup_root=root / "backups")
             patcher.load_archives()
@@ -1140,7 +1184,7 @@ class PatchEngineTests(unittest.TestCase):
                     (".rollback", ".displaced")
                 ):
                     unlink_failed = True
-                    raise PermissionError("arquivo temporariamente bloqueado")
+                    raise PermissionError("file temporaneamente bloccato")
                 real_unlink(path, *args, **kwargs)
 
             with (
@@ -1645,7 +1689,7 @@ class PatchEngineTests(unittest.TestCase):
             with engine.GameOperationLock(lock_path):
                 with self.assertRaisesRegex(engine.PatcherError, "Un'altra istanza"):
                     with engine.GameOperationLock(lock_path):
-                        self.fail("o segundo lock nao pode ser adquirido")
+                        self.fail("il secondo lock non può essere acquisito")
 
     def test_game_operation_lock_recovers_zero_byte_creation_residue(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -2030,6 +2074,149 @@ class PatchEngineTests(unittest.TestCase):
             malformed.write_text("{", encoding="utf-8")
             expected.add(malformed)
             self.assertEqual(set(engine.find_incomplete_backups(root)), expected)
+
+
+class BhdShaIntegrityGuardTests(unittest.TestCase):
+    def _make_patcher(
+        self,
+        root: Path,
+        *,
+        live_slot: bytes,
+        hashed_slot: bytes | None = None,
+        extra_entry: tuple[str, tuple[tuple[int, int], ...]] | None = None,
+        ranges: tuple[tuple[int, int], ...] = ((0, 2),),
+    ) -> tuple[engine.PatchEngine, Path, Path]:
+        game_dir = root / "Game"
+        sd_dir = game_dir / "sd"
+        sd_dir.mkdir(parents=True)
+        payload_dir = root / "payload"
+        payload_dir.mkdir()
+        salt = b"GR_sound"
+        offset = 4
+        padded = len(live_slot)
+        authenticated = hashed_slot if hashed_slot is not None else live_slot
+
+        def digest_for(selected_ranges: tuple[tuple[int, int], ...]) -> bytes:
+            selected = b"".join(
+                authenticated[start:end]
+                for start, end in selected_ranges
+                if start != -1 and end != -1
+            )
+            return hashlib.sha256(selected + salt).digest()
+
+        entries = [
+            (
+                engine.hash_path("voice.bnk"),
+                padded,
+                padded,
+                offset,
+                digest_for(ranges),
+                ranges,
+            )
+        ]
+        if extra_entry is not None:
+            extra_name, extra_ranges = extra_entry
+            entries.append(
+                (
+                    engine.hash_path(extra_name),
+                    padded,
+                    padded,
+                    offset,
+                    digest_for(extra_ranges),
+                    extra_ranges,
+                )
+            )
+        bhd_path = sd_dir / "sd.bhd"
+        bdt_path = sd_dir / "sd.bdt"
+        bhd_path.write_bytes(make_bhd_with_sha(entries, salt))
+        bdt_path.write_bytes(b"HEAD" + live_slot + b"TAIL")
+        patcher = engine.PatchEngine(game_dir, backup_root=root / "backups")
+        patcher.load_archives()
+        return patcher, payload_dir, bdt_path
+
+    def test_salted_sha_hashes_ranges_in_order_then_salt(self) -> None:
+        slot = b"ABCDEFGH"
+        ranges = (
+            engine.AESRange(1, 3),
+            engine.AESRange(-1, -1),
+            engine.AESRange(5, 7),
+        )
+
+        actual = engine.calculate_bhd5_salted_sha256(slot, b"salt", ranges)
+
+        self.assertEqual(actual, hashlib.sha256(b"BCFGsalt").digest())
+
+    def test_load_archives_preserves_exact_bhd_salt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            patcher, _payload, _bdt = self._make_patcher(
+                root, live_slot=b"ABCDEFGH"
+            )
+
+            self.assertEqual(patcher.archives[0].salt, b"GR_sound")
+
+    def test_guard_rejects_invalid_current_bdt_without_creating_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            patcher, payload, bdt_path = self._make_patcher(
+                root,
+                live_slot=b"XYCDEFGH",
+                hashed_slot=b"ABCDEFGH",
+            )
+            (payload / "voice.bnk").write_bytes(b"ABCDEFGH")
+            plan = patcher.build_plan(payload)
+            before = bdt_path.read_bytes()
+
+            with self.assertRaisesRegex(
+                engine.CompatibilityError, "Integrità SHA salted non valida"
+            ):
+                engine.validate_patch_plan_sha_integrity(plan)
+            self.assertFalse((root / "backups").exists())
+
+            with self.assertRaisesRegex(
+                engine.CompatibilityError, "Integrità SHA salted non valida"
+            ):
+                patcher.apply_plan(plan)
+
+            self.assertEqual(bdt_path.read_bytes(), before)
+            self.assertEqual(list((root / "backups").glob("*/*/manifest.json")), [])
+
+    def test_guard_rejects_plan_that_invalidates_an_aliased_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            patcher, payload, bdt_path = self._make_patcher(
+                root,
+                live_slot=b"ABCDEFGH",
+                ranges=((0, 1),),
+                extra_entry=("ambient.bnk", ((1, 2),)),
+            )
+            (payload / "voice.bnk").write_bytes(b"AZCDEFGH")
+            plan = patcher.build_plan(payload)
+            before = bdt_path.read_bytes()
+
+            with self.assertRaisesRegex(
+                engine.CompatibilityError, "modificherebbe un range SHA autenticato"
+            ):
+                patcher.apply_plan(plan)
+
+            self.assertEqual(bdt_path.read_bytes(), before)
+            self.assertEqual(list((root / "backups").glob("*/*/manifest.json")), [])
+
+    def test_guard_allows_changes_outside_authenticated_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            patcher, payload, bdt_path = self._make_patcher(
+                root,
+                live_slot=b"ABCDEFGH",
+                ranges=((0, 2),),
+            )
+            replacement = b"AB123456"
+            (payload / "voice.bnk").write_bytes(replacement)
+
+            written, unmatched = patcher.apply_plan(patcher.build_plan(payload))
+
+            self.assertEqual((written, unmatched), (1, 0))
+            self.assertEqual(bdt_path.read_bytes()[4:12], replacement)
 
 
 if __name__ == "__main__":
