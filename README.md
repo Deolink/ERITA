@@ -4,205 +4,161 @@ Patcher per applicare il doppiaggio in Italiano a Elden Ring (PC).
 
 Fork di [ERPT-BR](https://github.com/lorepamplona/ERPT-BR) di [@lorepamplona](https://github.com/lorepamplona), adattato per il doppiaggio italiano da [@Deolink](https://github.com/Deolink).
 
-> [!CAUTION]
-> **Installazione temporaneamente sospesa su Elden Ring 1.17.1.** Abbiamo
-> individuato che il pacchetto audio usato dalle versioni 0.9.1 e 0.9.2
-> sostituisce banchi più vecchi che rimuovono suoni presenti nel gioco attuale,
-> incluse risorse brevi legate ai clic dell'interfaccia. **Non installare
-> queste versioni.** Se le hai già installate, scarica la versione 0.9.3 e usa
-> **Correggi audio (ripristina)**. Se il pulsante non fosse disponibile o il
-> ripristino fallisse, usa **Steam > Proprietà > File installati > Verifica
-> integrità**. Non entrare in modalità online prima di aver ripristinato.
-> Consulta [il rapporto sull'incidente](docs/INCIDENTE-0.9.1.md).
+> [!IMPORTANT]
+> Il codice di ERITA è allineato alla versione **0.9.5** del progetto
+> originale, che installa il doppiaggio su Elden Ring **1.17.1** (Steam BuildID
+> `25080141`). I banchi audio vengono ricostruiti sui banchi originali di
+> quella versione, per preservare i suoni aggiunti dal gioco, inclusi i clic
+> dell'interfaccia che sparivano con le versioni 0.9.1 e 0.9.2. La 0.9.5
+> distribuisce l'audio corretto in un pacchetto piatto, senza lo ZIP audio
+> annidato.
+>
+> **Il pacchetto audio italiano non è ancora pronto**: le registrazioni sono in
+> corso, quindi ERITA non ha ancora una release installabile.
 
-Progetto di doppiaggio italiano per Elden Ring su PC. La versione 0.9.3 è un
-**hotfix di sola recuperazione** per Elden Ring 1.17.1 (Steam BuildID
-25080141): abbandona l'eseguibile proprio, impedisce nuove installazioni del
-pacchetto interessato e ripristina i backup sicuri creati dalle versioni 0.9.x.
+## Download
 
 **Download:** (WORK IN PROGRESS)
 
-Questa versione ha come obiettivo tecnico **Elden Ring 1.17.1 (Steam build
-25080141)** e abbandona l'eseguibile proprietario che causava avvisi degli antivirus.
-La coppia patch/BuildID è stata identificata, ma la pubblicazione stabile dipende ancora
-dal test descritto in [Convalida in sospeso](#convalida-in-sospeso).
+Quando sarà pubblicata una release, dalla pagina
+[Releases](https://github.com/Deolink/ERITA/releases) andrà scaricato solo:
 
-## La modalità online continua a funzionare?
+`ERITA-v0.9.5-Windows.zip`
 
-In questo momento, **non usare il doppiaggio in modalità online**. La verifica ha
-trovato incompatibilità di banchi e di integrità nel metodo diretto delle
-versioni 0.9.1/0.9.2. Ripristina prima i file originali, verifica l'audio
-originale nel gioco e solo dopo torna in modalità online.
+È il pacchetto completo per l'utente: installer in codice sorgente, dipendenze
+verificate e payload audio. Non scaricare gli ZIP automatici **Source code** di
+GitHub e non provare a eseguire separatamente i file interni del payload.
 
-L'obiettivo futuro resta evitare Mod Engine 3, l'iniezione di DLL e modifiche
-all'Easy Anti-Cheat. Questo non è una promessa di compatibilità per il
-pacchetto attualmente sospeso. Il progetto tornerà ad annunciare il supporto
-online solo dopo un test reale di menu, battute, cutscene e sessione con l'EAC
-sulla release corretta.
+## Installazione su Windows
 
-ERITA **non usa Mod Engine 3**, non inietta DLL nel gioco, non disattiva l'Easy
-Anti-Cheat e non cambia il modo di avviare il gioco. Dopo aver installato il doppiaggio,
-apri Elden Ring normalmente tramite Steam.
+1. Chiudi Elden Ring ed Easy Anti-Cheat.
+2. Estrai **tutto** il contenuto di `ERITA-v0.9.5-Windows.zip` in una cartella
+   normale.
+3. Fai doppio clic su `ERITA.cmd`.
+4. Conferma la cartella `ELDEN RING\Game` rilevata tramite Steam oppure
+   selezionala.
+5. Clicca su **Installa doppiaggio** e attendi la conferma finale.
+6. Apri il gioco normalmente tramite Steam.
 
-Il patcher sostituisce solo l'audio dentro i file `sd*.bdt` già usati dal gioco.
-Questa architettura preserva l'avvio online normale. Poiché il servizio online
-e le regole anti-cheat appartengono a terzi e possono cambiare, il progetto non
-promette un rischio esterno assolutamente pari a zero. Il patcher è già stato validato
-sui file reali del build target installato; manca ancora il test di apertura, login e
-sessione online con l'Easy Anti-Cheat.
+L'utente vede un solo punto di ingresso: `ERITA.cmd`. Al primo utilizzo
+verifica il pacchetto e prepara un ambiente isolato. Se necessario, installa il
+CPython 3.13.15 x64 ufficiale nel profilo dell'utente. Negli utilizzi
+successivi, lo stesso file apre l'interfaccia senza rifare un'installazione
+valida.
 
-## Nuovo metodo di installazione
+Non eseguire il patcher come amministratore. Se Windows nega la scrittura,
+chiudi il gioco e l'EAC e usa una libreria Steam scrivibile dal tuo account,
+oppure modifica solo il permesso della cartella del gioco.
 
-L'hotfix 0.9.3 non contiene un `.exe` creato o impacchettato dal progetto. Porta con sé:
+## Modalità online
 
-- tutto il codice sorgente Python visibile;
-- script `.cmd` inclusi come testo aperto per l'audit;
-- dipendenze ufficiali in wheel, con versioni e SHA-256 bloccati;
-- il verificatore e il ripristinatore transazionale dei file originali.
+La correzione audio mantenuta dalla 0.9.5 è stata testata dal progetto
+originale ERPT-BR in una sessione reale sulla 0.9.4, con il **suo** pacchetto
+audio PT-BR: gioco avviato normalmente da Steam, Easy Anti-Cheat e connessione
+online attivi. Il test si è concluso con successo e i suoni dei clic hanno
+continuato a funzionare. ERITA usa lo stesso metodo, ma non ha ancora un
+pacchetto audio proprio da provare online. Il patcher non disattiva né modifica
+l'EAC, non inietta DLL e non cambia il modo di avviare il gioco.
 
-L'utente vede un solo punto di ingresso: `ERITA.cmd`. Al primo utilizzo verifica
-un'installazione compatibile, installa esattamente Python 3.13.15 x64 nel profilo
-dell'utente quando necessario, prepara l'ambiente e apre il patcher. Negli utilizzi
-successivi, lo stesso file convalida rapidamente l'ambiente e apre l'interfaccia senza
-reinstallare tutto. I due script ausiliari si trovano nella cartella `interno` e non
-vanno eseguiti direttamente.
+Il metodo diretto modifica dati dentro i BDT, ma non riscrive né rifirma gli
+indici BHD. Per questo le risorse modificate non corrispondono più agli hash
+salted originali (8.973 nel pacchetto PT-BR). L'installer accetta solo le
+divergenze esatte del piano e del payload autenticati; qualunque differenza in
+più viene rifiutata. Una sessione online riuscita non elimina questo limite
+tecnico.
 
-Il flusso usa prima il pacchetto esatto `Python.Python.3.13` di WinGet; solo se
-WinGet non è disponibile, scarica l'installer ufficiale della Python Software
-Foundation e ne convalida dimensione, SHA-256, firma Authenticode ed editore prima
-di eseguirlo. Se WinGet è presente ma fallisce, il bootstrap si ferma e mostra
-l'errore invece di cambiare silenziosamente origine. Non richiede elevazione, non
-aggiunge Python al `PATH` e usa solo i wheel inclusi nello ZIP. Se un Python
-compatibile è già installato, viene trattato come base fidata dall'utente. In ogni
-caso, il `python.exe` non è prodotto dal mod.
+Quel risultato vale per la versione e la sessione testate: non è una garanzia
+di rischio zero né di compatibilità con futuri aggiornamenti del gioco,
+dell'EAC o delle regole del servizio. Se Steam aggiorna Elden Ring, ripristina
+o verifica i file e attendi la conferma del supporto al nuovo BuildID.
 
-## Recupero su Windows
+## Cosa è cambiato nella 0.9.5
 
-Finché l'installazione resta sospesa, usa solo la versione 0.9.3 per il
-recupero. Blocca nuove installazioni prima di scaricare il payload o modificare
-il gioco e mette in evidenza **Correggi audio (ripristina)**. Se non ci fosse un
-backup valido, esegui la verifica di integrità di Steam. Non usare le versioni
-0.8.4, 0.9.1 o 0.9.2 come alternativa: contengono lo stesso vecchio pacchetto
-audio.
+- l'audio ora si trova direttamente nella cartella `patch_data` del pacchetto
+  estratto;
+- non c'è più uno ZIP audio grande dentro lo ZIP da scaricare;
+- l'interfaccia e il metodo di installazione restano gli stessi;
+- il pacchetto resta un unico download con un unico punto di ingresso,
+  `ERITA.cmd`;
+- il contenuto audio viene convalidato con lo stesso inventario e lo stesso
+  SHA-256 canonico dell'albero prima di qualunque scrittura nel gioco.
 
-## Installazione su Windows (sospesa)
+## Correzione audio mantenuta dalla 0.9.4
 
-Una migrazione a C#, Rust o un altro linguaggio non rimuoverebbe da sola gli avvisi:
-tornerebbe a creare un eseguibile proprietario senza reputazione o firma del
-codice. Per questo l'alternativa a un clic mantiene aperto il codice del mod e
-delega solo l'installazione dell'interprete a canali ufficiali autenticati.
+- banchi Wwise ricostruiti usando la struttura originale di Elden Ring 1.17.1;
+- media ed eventi nuovi del gioco preservati durante l'inserimento delle
+  battute;
+- clic del menu e altri suoni originali assenti nel vecchio pacchetto
+  ripristinati;
+- installazione, reinstallazione idempotente e ripristino verificati;
+- convalida del gioco ripetuta subito prima di qualunque scrittura;
+- installazione con un clic senza un eseguibile proprio del progetto.
 
-Se hai già usato il vecchio `.exe`, esegui prima la [migrazione sicura](MIGRACAO.md).
+Per riferimento, il payload PT-BR autenticato dell'upstream contiene 9.241
+file: 8.969 WEM e 272 alias BNK, corrispondenti a 136 banchi fisici
+ricostruiti. Il payload italiano avrà numeri e hash propri.
 
-### Recupero: un unico file
+## Chi ha usato la 0.9.1 o la 0.9.2
 
-1. Per recuperare un'installazione interessata, scarica
-   `ERITA-v0.9.3-source-win64.zip` dalla pagina
-   [Releases](https://github.com/Deolink/ERITA/releases). Non usare lo ZIP
-   automatico "Source code", perché non contiene le dipendenze offline.
-2. Estrai l'intero ZIP in una cartella normale.
-3. Fai doppio clic su `ERITA.cmd`. Se il Python corretto non è
-   presente, lo script installa la versione ufficiale nel tuo profilo; poi prepara
-   l'ambiente e apre il patcher.
-4. Seleziona la cartella `ELDEN RING\Game` e clicca su **Correggi audio
-   (ripristina)**.
-5. Attendi la conferma che i BDT originali sono stati ripristinati e
-   verificati. Se non ci fosse un backup valido o si verificasse un errore, usa
-   la verifica di integrità di Steam.
-6. Apri prima il gioco per verificare i clic e l'audio originali. Solo dopo
-   questa conferma torna in modalità online.
+Quelle versioni sostituivano banchi attuali con banchi vecchi e potevano
+rimuovere i clic del menu e i suoni delle cutscene. La versione 0.8.4 usa lo
+stesso vecchio payload e non è un'alternativa sicura.
 
-Per aprire di nuovo l'hotfix di recupero, usa sempre lo stesso `ERITA.cmd`.
+Prima di installare di nuovo:
 
-Non eseguire il patcher come amministratore. Se Windows nega la scrittura, usa una
-libreria Steam scrivibile dal tuo account o modifica solo il permesso della cartella
-del gioco; il programma non tenta mai di elevarsi da solo.
+1. Apri il pacchetto attuale e usa **Correggi audio (ripristina)** se esiste un
+   backup transazionale valido.
+2. Se il ripristino non è disponibile o fallisce, usa **Steam > Elden Ring >
+   Proprietà > File installati > Verifica integrità dei file**.
+3. Conferma l'audio originale e solo dopo installa la nuova versione.
 
-La 0.9.3 si ferma prima di acquisire il payload vocale. Non scarica né applica
-l'asset audio v0.8.1 sospeso.
-
-Una copia di backup interrotta può lasciare una cartella nascosta
-`.xxxxxxxxxxxx-xxxxxxxx` accanto ai backup. Il patcher registra il percorso esatto
-e la preserva; rimuovila manualmente solo dopo aver confermato che non è l'unico
-backup utile.
+Consulta anche la [migrazione dal vecchio eseguibile](MIGRACAO.md) e il
+[rapporto sull'incidente](docs/INCIDENTE-0.9.1.md).
 
 ## Diagnostica di compatibilità e blocchi
 
-Una versione del gioco fuori target, come la 1.17.0, non appare più come
-un'installazione bloccata senza spiegazioni: il patcher mostra il BuildID
-rilevato, il BuildID supportato, la fase in cui si è interrotto e un codice
-stabile come `ERPT-COMPAT-001`. Il rifiuto avviene prima di caricare o
-modificare i file audio.
+Una versione del gioco fuori target, come la 1.17.0, non sembra più
+un'installazione bloccata. Il patcher mostra il BuildID trovato, il BuildID
+supportato, la fase in cui si è fermato e un codice stabile come
+`ERITA-COMPAT-001`. Il rifiuto avviene prima di caricare o modificare l'audio.
 
-Il pulsante **Diagnostica** resta disponibile anche durante un'operazione.
-Genera localmente un report JSON con versione del patcher, BuildID già
-identificato, fase, tempo trascorso in quella fase, ultimo avanzamento,
-sistema e log recenti. In caso di errore, la spiegazione appare subito mentre
-questo report viene preparato in background.
-Il report non crea campi per nome utente, percorso completo, SteamID, salvataggi
-o contenuto del manifesto e rimuove dai testi di errore pattern noti di questi
-dati. La diagnostica inoltre non apre né calcola l'hash dei file del gioco.
-Rivedi comunque il contenuto prima di pubblicarlo.
+Il pulsante **Diagnostica** genera localmente un report JSON con versione del
+patcher, BuildID identificato, fase, tempo, avanzamento, sistema e log recenti.
+Il report non include di proposito nome utente, percorso completo, SteamID,
+salvataggi o contenuto del manifesto, e non apre né calcola l'hash dei file del
+gioco. Rivedi comunque il contenuto prima di pubblicarlo.
 
-Niente viene inviato automaticamente. Nella finestra del report, l'utente può
-rivedere, copiare, salvare o cliccare su **Apri segnalazione**. Quest'ultimo
-pulsante si limita a copiare la diagnostica e ad aprire il
+Niente viene inviato automaticamente. Il pulsante **Apri segnalazione** si
+limita a copiare la diagnostica e ad aprire il
 [modulo di compatibilità](https://github.com/Deolink/ERITA/issues/new?template=compatibilidade.yml);
-l'invio resta manuale e la issue sarà pubblica. Non allegare salvataggi né file
-del gioco.
+l'invio resta manuale e la issue sarà pubblica.
 
-## Backup, ripristino e aggiornamenti del gioco
+## Backup, ripristino e aggiornamenti
 
-La 0.9.3 rifiuta qualsiasi nuova applicazione. Per ripristinare, collega il
-backup al fingerprint del BHD/build, autentica il backup e lo stato attuale,
-prepara copie temporanee, registra un journal di recupero e rilegge il
-risultato prima di annunciare il successo. Convalida inoltre gli hash salted
-del BHD, in previsione di una futura applicazione che potrà creare backup o
-sostituire i BDT.
+Il backup si trova in `%LOCALAPPDATA%\ERITA\backups` ed è collegato al
+fingerprint del BHD e al BuildID del gioco. Il patcher autentica il backup,
+prepara copie temporanee, registra un journal transazionale e rilegge il
+risultato prima di annunciare il successo. Un backup di un altro build non
+viene mai ripristinato sul gioco attuale.
 
-Il backup esistente si trova fuori dalla cartella del gioco, in
-`%LOCALAPPDATA%\ERITA\backups`, ed è collegato al fingerprint del build. Un
-backup di una versione precedente non viene mai ripristinato su un BHD nuovo.
+Ripristina l'audio originale prima di spostare o rinominare la libreria Steam.
+Usa lo stesso account Windows per installare e ripristinare. Se il gioco si
+aggiorna, esegui la verifica di integrità di Steam e attendi una versione di
+ERITA che riconosca il nuovo BuildID.
 
-Ripristina l'audio originale **prima di spostare o rinominare la libreria Steam**. Se
-la libreria è già stata spostata mentre il doppiaggio era applicato, usa la verifica
-di integrità di Steam prima di installare di nuovo; il patcher cerca i manifest
-dei percorsi precedenti e rifiuta di trasformare l'audio doppiato in un nuovo baseline.
-Usa sempre lo stesso account Windows per installare, aggiornare e ripristinare il mod.
-I backup restano nel profilo di quell'account e non coordinano operazioni avviate da
-un altro utente dello stesso computer.
+I file di una transazione interrotta (anche le copie `.erita-stage-*` e
+`.erita-restore-*`) vengono preservati per la diagnostica; il programma non
+cancella mai ricorsivamente un percorso che potrebbe essere stato sostituito da
+un link o da una junction.
 
-Quando Steam aggiorna Elden Ring, usa **Proprietà > File installati >
-Verifica integrità dei file** e attendi una versione di ERITA che abbia come
-target il nuovo BuildID. Se un backup sicuro di un altro build impedisce la creazione
-del nuovo baseline, conferma prima l'audio originale e sposta quella cartella di
-backup specifica altrove; il patcher non la cancella mai automaticamente.
-Se c'è una transazione interrotta, il messaggio elenca anche i file
-privati `.rollback`/`.displaced` che devono essere preservati nella stessa quarantena,
-fuori da `Game\sd`, per non lasciare residui voluminosi né perdere le prove per il recupero.
-Anche le copie `.erita-stage-*`/`.erita-restore-*` lasciate da un'interruzione
-vengono preservate e hanno il percorso registrato per una pulizia manuale sicura.
+## Limiti attuali
 
-## Limiti di questo hotfix
-
-L'hotfix pubblico è limitato al Steam BuildID 25080141 e recupera solo i
-backup 0.9.x corrispondenti a quel fingerprint. Non installa battute, BNK, WEM
-né cutscene `.bk2`. Le cartelle `movie`/`movie_dlc` accanto all'installer
-restano rifiutate; il vecchio pacchetto opzionale non possiede un manifesto
-crittografico pubblico.
-
-## Convalida in sospeso
-
-Il bootstrap, il rollback e l'installer distribuito come sorgente hanno test
-automatizzati. L'audit sull'installazione reale ha confermato che il backup
-originale è integro e ripristinabile; ha anche mostrato che il vecchio
-pacchetto rimuove contenuto dall'attuale `cs_main.bnk` e lascia 8.976 risorse
-fuori dagli hash salted del BHD.
-
-Le versioni `v0.9.1` e `v0.9.2` non devono essere considerate installabili. La
-prossima release funzionale potrà essere promossa solo dopo aver ricostruito i
-banchi sulla versione 1.17.1 e completato test reali di menu, battute,
-cutscene, ripristino e sessione online con l'EAC.
+- Windows x64 e versione Steam di Elden Ring;
+- Elden Ring 1.17.1, Steam BuildID `25080141`;
+- audio WEM/BNK; il vecchio pacchetto opzionale di cutscene `.bk2` resta
+  rifiutato perché non ha un manifesto crittografico pubblico;
+- le versioni future del gioco richiedono una convalida e una release
+  specifiche.
 
 ## Sviluppo e test
 
@@ -211,12 +167,17 @@ python -m pip install --require-hashes --only-binary=:all: -r patcher/requiremen
 python -m unittest discover -s tests -v
 ```
 
-La CI rifiuta il ritorno del launcher dinamico, di `exec(compile(...))`, di
-`taskkill` e di build PyInstaller/Nuitka. Le release vengono assemblate tramite lista
-consentita e pubblicano un unico ZIP proprio, con digest SHA-256 e attestazione di
-provenienza registrati da GitHub. La 0.9.3 viene pubblicata come Latest solo in
-quanto recupero sicuro; le release funzionali restano pre-release finché lo
-smoke test reale non sarà completato.
+Per avviare `ERITA.cmd` direttamente dal checkout serve una cartella
+`patch_data` accanto allo script: vuota basta per aprire l'interfaccia e
+usare il ripristino. Per provare file `.wem`/`.bnk` italiani non ancora
+fissati nel manifesto del payload, mettili in `patch_data` e imposta la
+variabile di sviluppo `ERITA_DEV_UNSAFE_SKIP_PAYLOAD_PIN=1`. Finché quella
+variabile resta nel codice, `tools/verify_source_release.py` rifiuta qualunque
+release.
+
+La CI rifiuta il launcher dinamico, `exec(compile(...))`, `taskkill` e le build
+PyInstaller/Nuitka. Le release vengono assemblate tramite lista consentita, con
+SHA-256 e attestazione di provenienza registrati da GitHub.
 
 Segnalazioni e codice: [GitHub](https://github.com/Deolink/ERITA)
 

@@ -1,9 +1,9 @@
-name: Release source-only Windows patcher
+name: Release single-package Windows patcher
 
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v0.9.5"
 
 permissions: {}
 
@@ -89,15 +89,59 @@ jobs:
             --dest wheelhouse `
             -r patcher/requirements-win64.lock
 
-      - name: Build and verify source release
+      # Prerequisito della promozione: l'asset grande e autenticato deve esistere
+      # in una prerelease di staging pubblicata. I suoi file vengono incorporati
+      # in forma piatta; lo ZIP di staging non viene mai annidato nella release finale.
+      # Nel fork ERITA questa prerelease non esiste ancora e i pin qui sotto sono
+      # quelli del payload PT-BR dell'upstream: finche' non ci sara' un payload
+      # italiano, questo passo fallisce in modo esplicito e nessuna release parte.
+      - name: Download authenticated staging payload
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $stagingTag = "v0.9.4-rc.1"
+          $stagingAsset = "patch_data_v094_rc1_wwise135_v2.zip"
+          New-Item -ItemType Directory -Force payload-staging | Out-Null
+          try {
+            $staging = gh release view $stagingTag `
+              --repo "${{ github.repository }}" `
+              --json tagName,isDraft,isPrerelease | ConvertFrom-Json
+            if ($staging.isDraft -or -not $staging.isPrerelease) {
+              throw "La release di origine deve essere una prerelease di staging pubblicata."
+            }
+            gh release download $stagingTag `
+              --repo "${{ github.repository }}" `
+              --pattern $stagingAsset `
+              --dir payload-staging
+          } catch {
+            throw "Prerequisito mancante: pubblica prima l'asset di staging $stagingTag/$stagingAsset. $($_.Exception.Message)"
+          }
+          $payload = Join-Path "payload-staging" $stagingAsset
+          if (-not (Test-Path -LiteralPath $payload -PathType Leaf)) {
+            throw "Prerequisito mancante: asset di staging $stagingTag/$stagingAsset"
+          }
+          $item = Get-Item -LiteralPath $payload
+          if ($item.Length -ne 588468447) {
+            throw "Dimensione del payload di staging divergente: $($item.Length)"
+          }
+          $hash = (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne "430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680") {
+            throw "SHA-256 del payload di staging divergente: $hash"
+          }
+
+      - name: Build and verify single final ZIP
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           New-Item -ItemType Directory -Force dist | Out-Null
-          $archive = "dist/ERITA-${{ github.ref_name }}-source-win64.zip"
+          $archive = "dist/ERITA-v0.9.5-Windows.zip"
           python tools/build_source_release.py `
             --version "${{ github.ref_name }}" `
             --wheelhouse wheelhouse `
+            --payload "payload-staging/patch_data_v094_rc1_wwise135_v2.zip" `
             --output $archive
           python tools/verify_source_release.py $archive
           $item = Get-Item $archive
@@ -113,7 +157,7 @@ jobs:
           }
           & "$env:SystemRoot\py.exe" -3.13 -I -S -c "import sys; raise SystemExit(sys.version_info[:3] != (3,13,15))"
           if ($LASTEXITCODE -ne 0) { throw "py.exe non ha risolto Python 3.13.15" }
-          $archive = "dist/ERITA-${{ github.ref_name }}-source-win64.zip"
+          $archive = "dist/ERITA-v0.9.5-Windows.zip"
           $smokeRoot = Join-Path $env:RUNNER_TEMP "erita-source-install-smoke"
           $smokeProfile = Join-Path $env:RUNNER_TEMP "erita-source-profile"
           Expand-Archive -LiteralPath $archive -DestinationPath $smokeRoot
@@ -123,17 +167,18 @@ jobs:
           $env:ERPTBR_INSTALL_ONLY = "1"
           & (Join-Path $packageRoot.FullName "ERITA.cmd")
           if ($LASTEXITCODE -ne 0) { throw "Smoke test reale di ERITA.cmd fallito" }
-          $venvPython = Join-Path $smokeProfile "ERITA\venv-0.9.3\Scripts\python.exe"
-          $venvSite = Join-Path $smokeProfile "ERITA\venv-0.9.3\Lib\site-packages"
+          $venvPython = Join-Path $smokeProfile "ERITA\venv-0.9.5\Scripts\python.exe"
+          $venvSite = Join-Path $smokeProfile "ERITA\venv-0.9.5\Lib\site-packages"
           $sourceRoot = $packageRoot.FullName
           & $venvPython -I -S -c "import struct,sys,sysconfig; sys.path.extend((sys.argv[1],sys.argv[2])); import patcher.patcher_gui,tkinter,customtkinter; from Crypto.Cipher import AES; raise SystemExit(0 if sys.version_info[:3] == (3,13,15) and struct.calcsize('P') == 8 and sysconfig.get_platform().lower() == 'win-amd64' else 1)" $sourceRoot $venvSite
           if ($LASTEXITCODE -ne 0) { throw "Smoke test isolato dell'ambiente installato fallito" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: erita-source-release
-          path: dist/ERITA-${{ github.ref_name }}-source-win64.zip
+          name: erita-v0.9.5-windows
+          path: dist/ERITA-v0.9.5-Windows.zip
           if-no-files-found: error
+          compression-level: 0
           retention-days: 7
 
   publish:
@@ -150,34 +195,119 @@ jobs:
 
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: erita-source-release
+          name: erita-v0.9.5-windows
           path: dist
 
       - name: Attest immutable artifacts
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
-          subject-path: dist/ERITA-${{ github.ref_name }}-source-win64.zip
+          subject-path: dist/ERITA-v0.9.5-Windows.zip
 
       - name: Publish new GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          archive="dist/ERITA-${{ github.ref_name }}-source-win64.zip"
+          archive="dist/ERITA-v0.9.5-Windows.zip"
+          notes="docs/RELEASE-0.9.5.md"
+          tag="v0.9.5"
+          title="ERITA v0.9.5 — Pacchetto piatto per Windows"
           test -f "$archive"
-          if test "$GITHUB_REF_NAME" = "v0.9.3"; then
-            notes="docs/RELEASE-0.9.3.md"
-            test -f "$notes"
-            gh release create "${{ github.ref_name }}" "$archive" \
-              --repo "${{ github.repository }}" \
-              --verify-tag \
-              --notes-file "$notes" \
-              --latest \
-              --title "ERITA ${{ github.ref_name }} — Hotfix di recupero"
+          test -f "$notes"
+          local_size="$(wc -c < "$archive" | tr -d '[:space:]')"
+          local_digest="sha256:$(sha256sum "$archive" | cut -d' ' -f1)"
+
+          # Conferma che il tag annotato esista gia', come farebbe --verify-tag.
+          gh api "repos/${{ github.repository }}/git/ref/tags/$tag" --silent
+
+          # L'endpoint /releases/tags non restituisce i draft in modo affidabile.
+          # Elenca le release autenticate e riusa solo una release identica,
+          # cosi' una nuova esecuzione e' sicura e non sovrascrive nessun asset.
+          releases="$RUNNER_TEMP/erita-releases.json"
+          gh api "repos/${{ github.repository }}/releases?per_page=100" > "$releases"
+          existing_count="$(jq --arg tag "$tag" '[.[] | select(.tag_name == $tag)] | length' "$releases")"
+          if [ "$existing_count" = "0" ]; then
+            create_request="$RUNNER_TEMP/erita-v095-create.json"
+            create_response="$RUNNER_TEMP/erita-v095-release.json"
+            jq -n \
+              --arg tag "$tag" \
+              --arg title "$title" \
+              --rawfile body "$notes" \
+              '{tag_name:$tag, name:$title, body:$body, draft:true, prerelease:false, make_latest:"false"}' \
+              > "$create_request"
+            gh api --method POST \
+              "repos/${{ github.repository }}/releases" \
+              --input "$create_request" > "$create_response"
+            release_id="$(jq -r '.id' "$create_response")"
+            release_was_draft="true"
+          elif [ "$existing_count" = "1" ]; then
+            if ! jq -e \
+              --arg tag "$tag" \
+              --arg title "$title" \
+              --rawfile body "$notes" \
+              '.[] | select(.tag_name == $tag and .prerelease == false and .name == $title and .body == $body)' \
+              "$releases" > /dev/null; then
+              echo "La release esistente non corrisponde esattamente a quella attesa." >&2
+              exit 1
+            fi
+            release_id="$(jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .id' "$releases")"
+            release_was_draft="$(jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .draft' "$releases")"
           else
-            gh release create "${{ github.ref_name }}" "$archive" \
-              --repo "${{ github.repository }}" \
-              --verify-tag \
-              --generate-notes \
-              --prerelease \
-              --title "ERITA ${{ github.ref_name }}"
+            echo "Piu' di una release usa il tag $tag." >&2
+            exit 1
           fi
+          test -n "$release_id"
+          upload_template="$(gh api "repos/${{ github.repository }}/releases/${release_id}" --jq '.upload_url')"
+          upload_url="$(printf '%s' "$upload_template" | sed 's/{.*$//')"
+          test -n "$upload_url"
+
+          # L'upload normale di gh identificava lo ZIP grande come
+          # application/octet-stream. L'endpoint degli asset accetta il MIME
+          # esplicito, e la release resta in bozza se una qualunque delle
+          # verifiche seguenti fallisce.
+          assets="$RUNNER_TEMP/erita-v095-assets.json"
+          gh api "repos/${{ github.repository }}/releases/${release_id}/assets" > "$assets"
+          asset_count="$(jq 'length' "$assets")"
+          if [ "$asset_count" = "1" ] && [ "$(jq -r '.[0].state' "$assets")" = "starter" ]; then
+            # L'API documenta che un 502 puo' lasciare un asset incompleto in questo
+            # stato. Rimuovi solo quel residuo dentro il draft esatto.
+            test "$release_was_draft" = "true"
+            stale_id="$(jq -r '.[0].id' "$assets")"
+            gh api --method DELETE "repos/${{ github.repository }}/releases/assets/${stale_id}"
+            asset_count="0"
+          fi
+          if [ "$asset_count" = "0" ]; then
+            test "$release_was_draft" = "true"
+            response="$RUNNER_TEMP/erita-v095-upload.json"
+            curl --fail-with-body --silent --show-error --location \
+              --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: application/zip" \
+              --data-binary "@$archive" \
+              --output "$response" \
+              "${upload_url}?name=ERITA-v0.9.5-Windows.zip"
+            gh api "repos/${{ github.repository }}/releases/${release_id}/assets" > "$assets"
+            asset_count="$(jq 'length' "$assets")"
+          fi
+
+          asset_name="$(jq -r '.[0].name' "$assets")"
+          asset_type="$(jq -r '.[0].content_type' "$assets")"
+          asset_size="$(jq -r '.[0].size' "$assets")"
+          asset_digest="$(jq -r '.[0].digest' "$assets")"
+          asset_state="$(jq -r '.[0].state' "$assets")"
+          test "$asset_count" = "1"
+          test "$asset_name" = "ERITA-v0.9.5-Windows.zip"
+          test "$asset_type" = "application/zip"
+          test "$asset_size" = "$local_size"
+          test "$asset_digest" = "$local_digest"
+          test "$asset_state" = "uploaded"
+
+          publish_request="$RUNNER_TEMP/erita-v095-publish.json"
+          publish_response="$RUNNER_TEMP/erita-v095-published.json"
+          jq -n '{draft:false, make_latest:"true"}' > "$publish_request"
+          gh api --method PATCH \
+            "repos/${{ github.repository }}/releases/${release_id}" \
+            --input "$publish_request" > "$publish_response"
+          test "$(jq -r '.draft' "$publish_response")" = "false"
+          test "$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name')" = "$tag"

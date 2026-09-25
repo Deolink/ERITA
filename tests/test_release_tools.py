@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from tools import build_source_release, verify_source_release
 
@@ -32,30 +33,53 @@ class ReleaseBytesTests(unittest.TestCase):
 
             self.assertEqual(build_source_release.release_bytes(source), data)
 
+    def test_text_line_endings_are_checkout_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lf = root / "LICENSE"
+            crlf = root / "README.md"
+            lf.write_bytes(b"linha 1\nlinha 2\n")
+            crlf.write_bytes(b"linha 1\r\nlinha 2\r\n")
+
+            expected = b"linha 1\nlinha 2\n"
+            self.assertEqual(build_source_release.release_bytes(lf), expected)
+            self.assertEqual(build_source_release.release_bytes(crlf), expected)
+
     def test_verifier_rejects_oversized_member_before_extraction(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "oversized.zip"
-            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as out:
-                for relative in sorted(verify_source_release.EXPECTED_FILES):
-                    data = (
-                        b"x" * (verify_source_release.MAX_MEMBER_SIZE + 1)
-                        if relative == "README.md"
-                        else b""
-                    )
-                    out.writestr(f"ERITA-v0.9.3/{relative}", data)
+            archive = Path(temp) / verify_source_release.FINAL_ARCHIVE_NAME
+            package_root = f"ERITA-{verify_source_release.FINAL_VERSION}"
+            with mock.patch.object(verify_source_release, "PAYLOAD_FILE_COUNT", 0):
+                with zipfile.ZipFile(
+                    archive, "w", compression=zipfile.ZIP_DEFLATED
+                ) as out:
+                    for relative in sorted(verify_source_release.EXPECTED_FILES):
+                        data = (
+                            b"x" * (verify_source_release.MAX_MEMBER_SIZE + 1)
+                            if relative == "README.md"
+                            else b""
+                        )
+                        out.writestr(
+                            build_source_release.zip_info(
+                                f"{package_root}/{relative}"
+                            ),
+                            data,
+                        )
 
-            with self.assertRaisesRegex(SystemExit, "Membro troppo grande"):
-                verify_source_release.verify(str(archive))
+                with self.assertRaisesRegex(SystemExit, "Membro troppo grande"):
+                    verify_source_release.verify(str(archive))
 
     def test_verifier_rejects_excessive_member_count_before_iteration(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "many-members.zip"
-            with zipfile.ZipFile(archive, "w") as out:
-                for index in range(len(verify_source_release.EXPECTED_FILES) + 1):
-                    out.writestr(f"ERITA-v0.9.3/extra-{index}.txt", b"")
+            archive = Path(temp) / verify_source_release.FINAL_ARCHIVE_NAME
+            package_root = f"ERITA-{verify_source_release.FINAL_VERSION}"
+            with mock.patch.object(verify_source_release, "PAYLOAD_FILE_COUNT", 0):
+                with zipfile.ZipFile(archive, "w") as out:
+                    for index in range(len(verify_source_release.EXPECTED_FILES) + 1):
+                        out.writestr(f"{package_root}/extra-{index}.txt", b"")
 
-            with self.assertRaisesRegex(SystemExit, "quantità inaspettata"):
-                verify_source_release.verify(str(archive))
+                with self.assertRaisesRegex(SystemExit, "quantità inaspettata"):
+                    verify_source_release.verify(str(archive))
 
     def test_builder_and_verifier_share_the_source_allowlist(self) -> None:
         self.assertEqual(
@@ -97,6 +121,11 @@ class ReleaseBytesTests(unittest.TestCase):
         self.assertIn('set "ERPTBR_INTERNAL_CALL=1"', source)
         self.assertIn("Local\\ERITA_Installer_", source)
         self.assertNotIn("Local\\ERITA_Installer_v091", source)
+        self.assertNotIn("docs\\INCIDENTE-0.9.1.md", source)
+        self.assertIn("ERITA-PACKAGE-001", source)
+        self.assertIn("File obbligatorio mancante:", source)
+        self.assertIn("Cartella obbligatoria mancante: patch_data", source)
+        self.assertIn("usa prima Estrai tutto", source)
         self.assertLess(
             source.index("rem Rifiuta lo ZIP automatico"),
             source.index("call :find_python"),
@@ -111,6 +140,27 @@ class ReleaseBytesTests(unittest.TestCase):
             "http://",
         ):
             self.assertNotIn(forbidden.casefold(), source.casefold())
+
+    def test_verifier_requires_production_gui_safety_controls(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "patcher" / "patcher_gui.py").read_text(encoding="utf-8")
+
+        verify_source_release._verify_gui_controls(source)
+        stale = source.replace(
+            "bhd_integrity_mode=BHD_INTEGRITY_SCOPED_MOD",
+            "bhd_integrity_mode='strict'",
+            1,
+        )
+        with self.assertRaisesRegex(SystemExit, "Controlli obbligatori"):
+            verify_source_release._verify_gui_controls(stale)
+
+    def test_verifier_blocks_dev_payload_pin_bypass(self) -> None:
+        # Finché ERITA_DEV_UNSAFE_SKIP_PAYLOAD_PIN resta nel sorgente, nessuna
+        # release deve passare la verifica: un merge non deve perdere il blocco.
+        self.assertIn(
+            "erita_dev_unsafe_skip_payload_pin",
+            verify_source_release.FORBIDDEN_SOURCE_PATTERNS,
+        )
 
     def test_internal_launcher_repairs_missing_dependencies_once(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -1,8 +1,10 @@
-"""Secure acquisition and extraction of ERITA's audio payload.
+"""Secure discovery and validation of ERITA's audio payload.
 
-Only data is downloaded by this module.  The archive URL, byte length and
-SHA-256 are pinned, so a GitHub release (or a local file with the same name)
-cannot silently replace executable Python code.
+Production releases prefer a flat ``patch_data`` directory beside the source
+installer and authenticate its complete canonical tree.  The reviewed archive
+identity remains pinned as a secure legacy/cache input and as the authenticated
+build input used to assemble a flat release.  Explicit non-production specs may
+still opt into the HTTPS download path used by older releases and tests.
 """
 
 from __future__ import annotations
@@ -24,20 +26,17 @@ import uuid
 import zipfile
 
 
-PAYLOAD_VERSION = "v0.8.1"
-PAYLOAD_ARCHIVE_NAME = "patch_data_v081.zip"
-PAYLOAD_URL = (
-    "https://github.com/lorepamplona/ERPT-BR/releases/download/"
-    "v0.8.1/patch_data_v081.zip"
-)
-PAYLOAD_ARCHIVE_SIZE = 587_566_572
-PAYLOAD_SHA256 = "d66bb45093e911202f80cebac44650063e27da2cba41a78760b10e4d82d81d0c"
-PAYLOAD_TREE_SHA256 = "587533f29239d8dbe2131573e6e86a2452b272e76983f6cfef1a332d7b046417"
+PAYLOAD_VERSION = "v0.9.4"
+PAYLOAD_ARCHIVE_NAME = "patch_data_v094.zip"
+PAYLOAD_URL: str | None = None
+PAYLOAD_ARCHIVE_SIZE = 588_468_447
+PAYLOAD_SHA256 = "430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680"
+PAYLOAD_TREE_SHA256 = "8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb"
 PAYLOAD_WEM_COUNT = 8_969
 PAYLOAD_BNK_COUNT = 272
 PAYLOAD_FILE_COUNT = 9_241
-PAYLOAD_UNCOMPRESSED_SIZE = 604_911_847
-PAYLOAD_MAX_FILE_SIZE = 74_897_763
+PAYLOAD_UNCOMPRESSED_SIZE = 605_706_607
+PAYLOAD_MAX_FILE_SIZE = 74_956_066
 
 MARKER_FILENAME = ".erita-payload.json"
 MARKER_SCHEMA = 2
@@ -272,7 +271,7 @@ class PayloadSpec:
 
     version: str
     archive_name: str
-    url: str
+    url: str | None
     archive_size: int
     sha256: str
     wem_count: int
@@ -305,15 +304,33 @@ class PayloadSpec:
             raise ValueError("i limiti del payload non possono essere negativi")
         if self.wem_count + self.bnk_count <= 0:
             raise ValueError("il payload deve contenere almeno un file")
-        parsed = urllib.parse.urlsplit(self.url)
-        if parsed.scheme.lower() != "https" or not parsed.netloc:
-            raise ValueError("l'URL del payload deve usare HTTPS")
+        if self.url is not None:
+            parsed = urllib.parse.urlsplit(self.url)
+            if parsed.scheme.lower() != "https" or not parsed.netloc:
+                raise ValueError("l'URL del payload deve usare HTTPS")
         if not self.archive_name or Path(self.archive_name).name != self.archive_name:
             raise ValueError("archive_name deve essere solo un nome di file")
 
     @property
     def file_count(self) -> int:
         return self.wem_count + self.bnk_count
+
+
+LEGACY_PAYLOAD_V081 = PayloadSpec(
+    version="v0.8.1",
+    archive_name="patch_data_v081.zip",
+    url=(
+        "https://github.com/lorepamplona/ERPT-BR/releases/download/"
+        "v0.8.1/patch_data_v081.zip"
+    ),
+    archive_size=587_566_572,
+    sha256="d66bb45093e911202f80cebac44650063e27da2cba41a78760b10e4d82d81d0c",
+    wem_count=8_969,
+    bnk_count=272,
+    uncompressed_size=604_911_847,
+    max_file_size=74_897_763,
+    tree_sha256="587533f29239d8dbe2131573e6e86a2452b272e76983f6cfef1a332d7b046417",
+)
 
 
 PRODUCTION_PAYLOAD = PayloadSpec(
@@ -1253,6 +1270,12 @@ def download_archive(
 ) -> Path:
     """Download to a private unique file and publish without replacing a target."""
 
+    if spec.url is None:
+        raise PayloadDownloadError(
+            "Questo payload è incluso nel pacchetto ufficiale e non ha un download "
+            "separato. Estrai di nuovo lo ZIP completo di ERITA."
+        )
+
     target = Path(destination)
     _ensure_safe_directory_tree(
         target.parent, label="La cartella di download del payload"
@@ -1638,6 +1661,13 @@ def _ensure_patch_data_unlocked(
         except (PayloadValidationError, PayloadExtractionError) as exc:
             _log(log, f"ZIP locale ignorato per errore di convalida: {exc}")
 
+    if spec.url is None:
+        raise PayloadValidationError(
+            "Il payload incluso nella cartella 'patch_data' è assente oppure non ha "
+            "superato la verifica crittografica. Estrai di nuovo lo ZIP ufficiale "
+            "completo di ERITA; non è stato tentato nessun download alternativo."
+        )
+
     downloaded_archive = cache / spec.archive_name
     if os.path.lexists(downloaded_archive):
         try:
@@ -1711,6 +1741,7 @@ def ensure_patch_data(
 
 
 __all__ = [
+    "LEGACY_PAYLOAD_V081",
     "MARKER_FILENAME",
     "PAYLOAD_ARCHIVE_NAME",
     "PAYLOAD_ARCHIVE_SIZE",

@@ -16,7 +16,7 @@ body:
     attributes:
       label: "Versione di ERITA"
       description: "Indica la versione mostrata nell'installer o nel nome del file scaricato."
-      placeholder: "Es.: 0.9.3"
+      placeholder: "Es.: 0.9.5"
     validations:
       required: true
 
