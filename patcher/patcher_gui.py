@@ -754,23 +754,23 @@ class PatcherApp(ctk.CTk):
         elif isinstance(exc, InstallationSuspendedError):
             code = exc.code
         elif isinstance(exc, PermissionError):
-            code = "ERPT-FS-001"
+            code = "ERITA-FS-001"
         elif isinstance(exc, PatchDataError):
-            code = "ERPT-PAYLOAD-001"
+            code = "ERITA-PAYLOAD-001"
         elif isinstance(exc, LegacyBackupError):
-            code = "ERPT-BACKUP-002"
+            code = "ERITA-BACKUP-002"
         elif isinstance(exc, BackupError):
-            code = "ERPT-BACKUP-001"
+            code = "ERITA-BACKUP-001"
         elif isinstance(exc, CompatibilityError):
-            code = "ERPT-COMPAT-002"
+            code = "ERITA-COMPAT-002"
         elif isinstance(exc, PatcherError):
-            code = "ERPT-INSTALL-001"
+            code = "ERITA-INSTALL-001"
         elif isinstance(exc, OSError):
-            code = "ERPT-IO-001"
+            code = "ERITA-IO-001"
         elif isinstance(exc, ValueError):
-            code = "ERPT-DATA-001"
+            code = "ERITA-DATA-001"
         else:
-            code = "ERPT-INTERNAL-001"
+            code = "ERITA-INTERNAL-001"
         kind = type(exc).__name__
         message = str(exc) or "Falha sem mensagem adicional."
         with self._diagnostic_lock:
@@ -1180,23 +1180,23 @@ class PatcherApp(ctk.CTk):
     def _validated_context(self, selected_path: str) -> tuple[Path, str]:
         self._set_stage(
             "process_check",
-            "Confirmando que Elden Ring e Easy Anti-Cheat estao fechados...",
+            "Verifica che Elden Ring ed Easy Anti-Cheat siano chiusi...",
         )
         blockers = running_blockers()
         if blockers:
             raise PatcherError(
                 "Chiudi manualmente prima di continuare: " + ", ".join(blockers) + "."
             )
-        self._set_stage("game_directory", "Validando a pasta do jogo...")
+        self._set_stage("game_directory", "Convalida della cartella del gioco...")
         game_dir = validate_game_directory(selected_path)
-        self._set_stage("backup_check", "Verificando recuperacoes pendentes...")
+        self._set_stage("backup_check", "Controllo dei recuperi in sospeso...")
         pending = self._pending_transactions(game_dir)
         if pending:
             self._log(
                 "Rilevata una transazione interrotta. Verrà usato il backup verificato per "
                 "completare questo recupero."
             )
-        self._set_stage("steam_build", "Identificando a versao instalada pela Steam...")
+        self._set_stage("steam_build", "Identificazione della versione installata tramite Steam...")
         build_info = steam_build_info(game_dir)
         self._record_build_info(build_info, game_dir)
         return game_dir, require_supported_build(game_dir, build_info)

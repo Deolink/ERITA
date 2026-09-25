@@ -350,7 +350,7 @@ class GuiIntegrationTests(unittest.TestCase):
 
     def test_manual_report_does_not_reread_manifest_or_reuse_another_path(self) -> None:
         app = self._diagnostic_state_stub()
-        app._last_error_code = "ERPT-INSTALL-001"
+        app._last_error_code = "ERITA-INSTALL-001"
         app._detected_build_path_key = patcher_gui.PatcherApp._diagnostic_path_key(
             "original-game"
         )
@@ -403,7 +403,7 @@ class GuiIntegrationTests(unittest.TestCase):
         scheduled[0]()  # type: ignore[operator]
         snapshot = app._show_failure_dialog.call_args.args[2]
         self.assertEqual(snapshot["stage"], "steam_build")
-        self.assertEqual(snapshot["error_code"], "ERPT-DATA-001")
+        self.assertEqual(snapshot["error_code"], "ERITA-DATA-001")
         self.assertEqual(snapshot["detected_build_id"], "11111111")
 
     def test_diagnostic_button_remains_available_while_install_is_busy(self) -> None:
