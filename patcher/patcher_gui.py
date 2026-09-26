@@ -124,6 +124,51 @@ class SteamBuildInfo:
     status: str
 
 
+class SteamDetectionError(CompatibilityError):
+    """A instalacao Steam nao pode ser vinculada com seguranca ao jogo escolhido."""
+
+    code = "ERPT-STEAM-001"
+
+    def __init__(
+        self, build_info: SteamBuildInfo, *, before_game_writes: bool
+    ) -> None:
+        self.build_info = build_info
+        self.before_game_writes = before_game_writes
+        found = {
+            "manifest_missing": (
+                "manifesto Steam nao encontrado para a pasta selecionada"
+            ),
+            "manifest_unreadable": "manifesto Steam sem acesso de leitura",
+            "buildid_missing": "manifesto Steam sem BuildID",
+            "installdir_missing": "manifesto Steam sem a pasta de instalacao",
+            "layout_unknown": "pasta fora da estrutura reconhecida da Steam",
+            "manifest_not_linked": (
+                "manifesto Steam encontrado, mas vinculado a outra pasta do jogo"
+            ),
+        }.get(build_info.status, "instalacao Steam nao identificada")
+        safety_message = (
+            "O patcher parou antes de carregar os arquivos de audio. Nenhum "
+            "arquivo foi alterado."
+            if before_game_writes
+            else "A mudanca foi detectada durante a revalidacao de seguranca. "
+            "A instalacao nao foi confirmada; preserve os backups e verifique os "
+            "arquivos pela Steam antes de abrir o jogo."
+        )
+        super().__init__(
+            f"INSTALACAO STEAM NAO CONFIRMADA [{self.code}]\n\n"
+            f"Detectado: {found}.\n"
+            f"Isso nao significa que Elden Ring {SUPPORTED_GAME_VERSION} seja "
+            "incompativel. O ERPT-BR precisa confirmar o Steam BuildID "
+            f"{', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} no manifesto da mesma "
+            "pasta do jogo.\n\n"
+            "Na Steam, abra Elden Ring > Propriedades > Arquivos instalados > "
+            "Explorar e selecione exatamente a pasta Game mostrada. Se continuar, "
+            "reinicie a Steam e use Verificar integridade dos arquivos.\n\n"
+            f"{safety_message} Use 'Copiar diagnostico' para nos enviar os dados "
+            "tecnicos sem informacoes pessoais."
+        )
+
+
 class UnsupportedBuildError(CompatibilityError):
     """Versao recusada, preservando se a deteccao precedeu qualquer escrita."""
 
@@ -134,16 +179,7 @@ class UnsupportedBuildError(CompatibilityError):
     ) -> None:
         self.build_info = build_info
         self.before_game_writes = before_game_writes
-        found = (
-            f"Steam BuildID {build_info.build_id}"
-            if build_info.build_id
-            else {
-                "manifest_missing": "manifesto Steam nao encontrado",
-                "manifest_unreadable": "manifesto Steam sem acesso de leitura",
-                "buildid_missing": "manifesto Steam sem BuildID",
-                "layout_unknown": "pasta fora da estrutura esperada da Steam",
-            }.get(build_info.status, "Steam BuildID nao identificado")
-        )
+        found = f"Steam BuildID {build_info.build_id or 'nao identificado'}"
         safety_message = (
             "O patcher parou antes de carregar os arquivos de audio. Nenhum "
             "arquivo foi alterado."
@@ -193,8 +229,13 @@ def _steam_roots() -> list[Path]:
                 ):
                     try:
                         with winreg.OpenKey(hive, subkey) as key:
-                            value = winreg.QueryValueEx(key, "InstallPath")[0]
-                        roots.append(Path(value))
+                            for value_name in ("InstallPath", "SteamPath"):
+                                try:
+                                    value = winreg.QueryValueEx(key, value_name)[0]
+                                except OSError:
+                                    continue
+                                if isinstance(value, str) and value.strip():
+                                    roots.append(Path(value))
                     except OSError:
                         continue
         except ImportError:
@@ -238,28 +279,136 @@ def find_elden_ring() -> Path | None:
             if (candidate / "eldenring.exe").is_file() and (
                 candidate / "sd" / "sd.bhd"
             ).is_file():
-                return candidate.resolve()
+                # Preserve o caminho lexical da biblioteca. ``resolve()`` pode
+                # atravessar uma junction e perder o ``steamapps`` que contem o
+                # manifesto usado para autenticar o BuildID.
+                return candidate.absolute()
     return None
 
 
-def steam_build_info(game_dir: Path) -> SteamBuildInfo:
-    """Le passivamente o BuildID e preserva o motivo quando ele nao existe."""
+def _manifest_build_info(manifest_path: Path) -> tuple[SteamBuildInfo, str | None]:
+    """Le um appmanifest sem expor seu conteudo nem inferir compatibilidade."""
 
-    try:
-        steamapps = game_dir.parents[2]
-    except IndexError:
-        return SteamBuildInfo(None, "layout_unknown")
-    manifest_path = steamapps / f"appmanifest_{STEAM_APP_ID}.acf"
     try:
         content = manifest_path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
-        return SteamBuildInfo(None, "manifest_missing")
+        return SteamBuildInfo(None, "manifest_missing"), None
     except OSError:
-        return SteamBuildInfo(None, "manifest_unreadable")
+        return SteamBuildInfo(None, "manifest_unreadable"), None
+    install_match = re.search(r'"installdir"\s+"([^"]+)"', content, re.IGNORECASE)
+    install_dir = install_match.group(1) if install_match else None
     match = re.search(r'"buildid"\s+"(\d+)"', content, re.IGNORECASE)
     if not match:
-        return SteamBuildInfo(None, "buildid_missing")
-    return SteamBuildInfo(match.group(1), "identified")
+        return SteamBuildInfo(None, "buildid_missing"), install_dir
+    return SteamBuildInfo(match.group(1), "identified"), install_dir
+
+
+def _same_directory_identity(left: Path, right: Path) -> bool:
+    """Compara identidades reais e falha fechado se uma delas nao puder ser lida."""
+
+    try:
+        return left.samefile(right)
+    except OSError:
+        return False
+
+
+def _direct_manifest_paths(
+    game_dir: Path, game_path_hints: tuple[Path, ...]
+) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for candidate in (game_dir, *game_path_hints):
+        try:
+            steamapps = candidate.parents[2]
+        except IndexError:
+            continue
+        manifest = steamapps / f"appmanifest_{STEAM_APP_ID}.acf"
+        key = str(manifest.absolute()).casefold()
+        if key not in seen:
+            paths.append(manifest)
+            seen.add(key)
+    return tuple(paths)
+
+
+def steam_build_info(
+    game_dir: Path, *, game_path_hints: tuple[Path, ...] = ()
+) -> SteamBuildInfo:
+    """Le o BuildID apenas de um manifesto ligado a esta pasta do jogo."""
+
+    # Uma dica lexical serve apenas para reencontrar ``steamapps`` depois que
+    # ``resolve()`` atravessa uma junction. Ela nao concede autoridade: precisa
+    # continuar apontando para a mesma identidade fisica de ``game_dir`` em
+    # todas as validacoes, inclusive no precommit.
+    verified_hints = tuple(
+        hint
+        for hint in game_path_hints
+        if _same_directory_identity(hint, game_dir)
+    )
+    direct_manifests = _direct_manifest_paths(game_dir, verified_hints)
+    direct_missing = False
+    direct_failures: list[str] = []
+    saw_unlinked_manifest = False
+    for manifest_path in direct_manifests:
+        info, install_dir = _manifest_build_info(manifest_path)
+        if info.status == "manifest_missing":
+            direct_missing = True
+            continue
+        if info.status == "manifest_unreadable":
+            direct_failures.append(info.status)
+            continue
+        if not install_dir:
+            direct_failures.append("installdir_missing")
+            continue
+        registered_game = (
+            manifest_path.parent / "common" / install_dir / "Game"
+        )
+        if _same_directory_identity(registered_game, game_dir):
+            return info
+        saw_unlinked_manifest = True
+
+    # Se ``resolve()`` atravessou uma junction, recupere o manifesto pela lista
+    # oficial de bibliotecas da Steam. So aceite quando a pasta registrada e a
+    # pasta selecionada forem a mesma identidade no sistema de arquivos.
+    seen_manifests = {
+        str(path.absolute()).casefold() for path in direct_manifests
+    }
+    fallback_failures: list[str] = []
+    for steam_root in _steam_roots():
+        for library in _steam_libraries(steam_root):
+            manifest_path = (
+                library / "steamapps" / f"appmanifest_{STEAM_APP_ID}.acf"
+            )
+            key = str(manifest_path.absolute()).casefold()
+            if key in seen_manifests:
+                continue
+            seen_manifests.add(key)
+            info, install_dir = _manifest_build_info(manifest_path)
+            if info.status == "manifest_missing":
+                continue
+            if info.status == "manifest_unreadable":
+                fallback_failures.append(info.status)
+                continue
+            if not install_dir:
+                fallback_failures.append("installdir_missing")
+                continue
+            registered_game = library / "steamapps" / "common" / install_dir / "Game"
+            if _same_directory_identity(registered_game, game_dir):
+                return info
+            saw_unlinked_manifest = True
+
+    if direct_failures:
+        return SteamBuildInfo(None, direct_failures[0])
+    if saw_unlinked_manifest:
+        return SteamBuildInfo(None, "manifest_not_linked")
+    if fallback_failures:
+        return SteamBuildInfo(None, fallback_failures[0])
+    if direct_missing or direct_manifests:
+        return SteamBuildInfo(None, "manifest_missing")
+    try:
+        game_dir.parents[2]
+    except IndexError:
+        return SteamBuildInfo(None, "layout_unknown")
+    return SteamBuildInfo(None, "manifest_missing")
 
 
 def steam_build_id(game_dir: Path) -> str | None:
@@ -275,6 +424,8 @@ def require_supported_build(
     before_game_writes: bool = True,
 ) -> str:
     info = build_info or steam_build_info(game_dir)
+    if info.build_id is None:
+        raise SteamDetectionError(info, before_game_writes=before_game_writes)
     if info.build_id not in SUPPORTED_STEAM_BUILD_IDS:
         raise UnsupportedBuildError(
             info, before_game_writes=before_game_writes
@@ -505,15 +656,21 @@ class PatcherApp(ctk.CTk):
     def _finish_startup_status(self, build_info: SteamBuildInfo) -> None:
         """Nunca anuncia compatibilidade antes de validar o BuildID detectado."""
 
-        if build_info.build_id not in SUPPORTED_STEAM_BUILD_IDS:
-            error = UnsupportedBuildError(
-                build_info,
-                before_game_writes=True,
+        if build_info.build_id is None:
+            error = SteamDetectionError(build_info, before_game_writes=True)
+            self._set_stage(
+                "steam_detection_failed",
+                f"Instalacao Steam nao confirmada [{error.code}]; "
+                "abra Diagnostico para copiar o relatorio.",
+                finished=True,
             )
-            detected = build_info.build_id or "nao identificado"
+            self._record_error(error)
+            return
+        if build_info.build_id not in SUPPORTED_STEAM_BUILD_IDS:
+            error = UnsupportedBuildError(build_info, before_game_writes=True)
             self._set_stage(
                 "unsupported_build",
-                f"Versao nao suportada ({detected}) [{error.code}]; "
+                f"Versao nao suportada ({build_info.build_id}) [{error.code}]; "
                 "abra Diagnostico para copiar o relatorio.",
                 finished=True,
             )
@@ -747,7 +904,7 @@ class PatcherApp(ctk.CTk):
         self._status(message)
 
     def _record_error(self, exc: BaseException) -> tuple[str, str, str]:
-        if isinstance(exc, UnsupportedBuildError):
+        if isinstance(exc, (SteamDetectionError, UnsupportedBuildError)):
             code = exc.code
             self._record_build_info(exc.build_info)
         elif isinstance(exc, InstallationSuspendedError):
@@ -1187,6 +1344,7 @@ class PatcherApp(ctk.CTk):
                 "Feche manualmente antes de continuar: " + ", ".join(blockers) + "."
             )
         self._set_stage("game_directory", "Validando a pasta do jogo...")
+        lexical_game_dir = Path(selected_path).expanduser().absolute()
         game_dir = validate_game_directory(selected_path)
         self._set_stage("backup_check", "Verificando recuperacoes pendentes...")
         pending = self._pending_transactions(game_dir)
@@ -1196,12 +1354,17 @@ class PatcherApp(ctk.CTk):
                 "concluir esta recuperacao."
             )
         self._set_stage("steam_build", "Identificando a versao instalada pela Steam...")
-        build_info = steam_build_info(game_dir)
+        build_info = steam_build_info(
+            game_dir,
+            game_path_hints=(lexical_game_dir,),
+        )
         self._record_build_info(build_info, game_dir)
         return game_dir, require_supported_build(game_dir, build_info)
 
     @staticmethod
-    def _precommit_guard(game_dir: Path) -> None:
+    def _precommit_guard(
+        game_dir: Path, selected_path: str | Path | None = None
+    ) -> None:
         blockers = running_blockers()
         if blockers:
             raise PatcherError(
@@ -1210,7 +1373,17 @@ class PatcherApp(ctk.CTk):
                 + ", ".join(blockers)
                 + ". Nenhum arquivo foi trocado."
             )
-        require_supported_build(game_dir, before_game_writes=False)
+        hints = (
+            (Path(selected_path).expanduser().absolute(),)
+            if selected_path is not None
+            else ()
+        )
+        build_info = steam_build_info(game_dir, game_path_hints=hints)
+        require_supported_build(
+            game_dir,
+            build_info,
+            before_game_writes=False,
+        )
         if optional_movie_payload_present(APP_ROOT):
             raise CompatibilityError(
                 "Uma pasta movie/movie_dlc apareceu durante a preparacao. Ela "
@@ -1259,7 +1432,9 @@ class PatcherApp(ctk.CTk):
             engine = PatchEngine(
                 game_dir,
                 log=self._log,
-                precommit_guard=lambda: self._precommit_guard(game_dir),
+                precommit_guard=lambda: self._precommit_guard(
+                    game_dir, selected_path
+                ),
             )
             self._set_stage(
                 "archive_validation",
@@ -1330,7 +1505,7 @@ class PatcherApp(ctk.CTk):
                 "Revalidando jogo, EAC e Steam build antes da troca...",
                 write_state="patch_not_started",
             )
-            self._precommit_guard(game_dir)
+            self._precommit_guard(game_dir, selected_path)
 
             self._set_stage(
                 "apply",
@@ -1417,7 +1592,9 @@ class PatcherApp(ctk.CTk):
             engine = PatchEngine(
                 game_dir,
                 log=self._log,
-                precommit_guard=lambda: self._precommit_guard(game_dir),
+                precommit_guard=lambda: self._precommit_guard(
+                    game_dir, selected_path
+                ),
             )
             try:
                 self._set_stage(

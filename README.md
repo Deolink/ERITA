@@ -108,6 +108,12 @@ parada. O patcher mostra o BuildID encontrado, o BuildID suportado, a etapa em
 que interrompeu e um código estável como `ERPT-COMPAT-001`. A recusa acontece
 antes de carregar ou alterar o áudio.
 
+Se o manifesto da Steam não puder ser ligado à mesma pasta selecionada, o
+instalador mostra `ERPT-STEAM-001` em vez de chamar o jogo de incompatível. Ele
+também procura instalações registradas em bibliotecas secundárias e preserva o
+caminho lexical quando a biblioteca usa junction. O BuildID continua
+obrigatório: um manifesto de outra cópia do jogo nunca é aceito como prova.
+
 O botão **Diagnóstico** gera localmente um relatório JSON com versão do patcher,
 BuildID identificado, etapa, tempo, progresso, sistema e registros recentes. O
 relatório não inclui intencionalmente nome do usuário, pasta completa, SteamID,

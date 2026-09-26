@@ -30,6 +30,25 @@ class GuiIntegrationTests(unittest.TestCase):
         self.assertIsInstance(error, patcher_gui.UnsupportedBuildError)
         self.assertIs(error.build_info, info)
 
+    def test_startup_does_not_call_a_missing_manifest_an_unsupported_version(
+        self,
+    ) -> None:
+        app = mock.Mock()
+        info = patcher_gui.SteamBuildInfo(None, "manifest_missing")
+
+        patcher_gui.PatcherApp._finish_startup_status(app, info)
+
+        app._set_stage.assert_called_once_with(
+            "steam_detection_failed",
+            "Instalacao Steam nao confirmada [ERPT-STEAM-001]; "
+            "abra Diagnostico para copiar o relatorio.",
+            finished=True,
+        )
+        error = app._record_error.call_args.args[0]
+        self.assertIsInstance(error, patcher_gui.SteamDetectionError)
+        self.assertNotIn("VERSAO DO JOGO NAO SUPORTADA", str(error))
+        self.assertIn("nao significa", str(error))
+
     def test_startup_labels_only_the_pinned_build_as_ready(self) -> None:
         app = mock.Mock()
         info = patcher_gui.SteamBuildInfo("25080141", "identified")
@@ -131,13 +150,45 @@ class GuiIntegrationTests(unittest.TestCase):
 
         callback.assert_not_called()
 
+    @unittest.skipUnless(
+        patcher_gui.sys.platform == "win32",
+        "Registro da Steam existe apenas no Windows",
+    )
+    def test_steam_roots_accepts_user_steam_path_without_install_path(self) -> None:
+        import winreg
+
+        key = mock.MagicMock()
+        key.__enter__.return_value = key
+
+        def open_key(hive: object, subkey: str) -> object:
+            if (
+                hive == winreg.HKEY_CURRENT_USER
+                and subkey == r"SOFTWARE\Valve\Steam"
+            ):
+                return key
+            raise FileNotFoundError
+
+        def query_value(_key: object, value_name: str) -> tuple[str, int]:
+            if value_name == "SteamPath":
+                return r"D:\PortableSteam", winreg.REG_SZ
+            raise FileNotFoundError
+
+        with (
+            mock.patch.object(winreg, "OpenKey", side_effect=open_key),
+            mock.patch.object(winreg, "QueryValueEx", side_effect=query_value),
+        ):
+            roots = patcher_gui._steam_roots()
+
+        self.assertIn(Path(r"D:\PortableSteam"), roots)
+
     def test_reads_and_requires_the_pinned_steam_build(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             steamapps = Path(temporary) / "steamapps"
             game = steamapps / "common" / "ELDEN RING" / "Game"
             game.mkdir(parents=True)
             (steamapps / "appmanifest_1245620.acf").write_text(
-                '"AppState"\n{\n  "buildid"  "25080141"\n}\n',
+                '"AppState"\n{\n  "installdir" "ELDEN RING"\n'
+                '  "buildid"  "25080141"\n}\n',
                 encoding="utf-8",
             )
 
@@ -150,7 +201,8 @@ class GuiIntegrationTests(unittest.TestCase):
             game = steamapps / "common" / "ELDEN RING" / "Game"
             game.mkdir(parents=True)
             (steamapps / "appmanifest_1245620.acf").write_text(
-                '"buildid" "99999999"\n', encoding="utf-8"
+                '"installdir" "ELDEN RING"\n"buildid" "99999999"\n',
+                encoding="utf-8",
             )
 
             with self.assertRaisesRegex(
@@ -174,15 +226,221 @@ class GuiIntegrationTests(unittest.TestCase):
             )
             game.mkdir(parents=True)
 
-            info = patcher_gui.steam_build_info(game)
+            with mock.patch.object(patcher_gui, "_steam_roots", return_value=[]):
+                info = patcher_gui.steam_build_info(game)
 
             self.assertIsNone(info.build_id)
             self.assertEqual(info.status, "manifest_missing")
             with self.assertRaisesRegex(
-                patcher_gui.UnsupportedBuildError,
-                "manifesto Steam nao encontrado",
+                patcher_gui.SteamDetectionError,
+                r"ERPT-STEAM-001[\s\S]*manifesto Steam nao encontrado",
             ):
                 patcher_gui.require_supported_build(game, info)
+
+    def test_uses_lexical_library_path_after_game_path_was_resolved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resolved_game = root / "physical" / "Game"
+            resolved_game.mkdir(parents=True)
+            lexical_game = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "common"
+                / "ELDEN RING"
+                / "Game"
+            )
+            lexical_game.mkdir(parents=True)
+            manifest = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "appmanifest_1245620.acf"
+            )
+            manifest.write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(patcher_gui, "_steam_roots", return_value=[]),
+                mock.patch.object(
+                    patcher_gui,
+                    "_same_directory_identity",
+                    side_effect=lambda left, right: (
+                        left == lexical_game and right == resolved_game
+                    ),
+                ),
+            ):
+                info = patcher_gui.steam_build_info(
+                    resolved_game,
+                    game_path_hints=(lexical_game,),
+                )
+
+            self.assertEqual(info, patcher_gui.SteamBuildInfo("25080141", "identified"))
+
+    def test_foreign_path_hint_cannot_authorize_another_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "selected" / "Game"
+            game.mkdir(parents=True)
+            foreign_game = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "common"
+                / "ELDEN RING"
+                / "Game"
+            )
+            foreign_game.mkdir(parents=True)
+            (foreign_game.parents[2] / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(patcher_gui, "_steam_roots", return_value=[]):
+                info = patcher_gui.steam_build_info(
+                    game,
+                    game_path_hints=(foreign_game,),
+                )
+
+            self.assertEqual(
+                info,
+                patcher_gui.SteamBuildInfo(None, "manifest_missing"),
+            )
+
+    def test_directory_identity_check_fails_closed_on_os_error(self) -> None:
+        left = mock.Mock(spec=Path)
+        right = mock.Mock(spec=Path)
+        left.samefile.side_effect = OSError("identity unavailable")
+
+        self.assertFalse(patcher_gui._same_directory_identity(left, right))
+
+    def test_invalid_physical_manifest_does_not_hide_valid_lexical_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "physical" / "common" / "ELDEN RING" / "Game"
+            game.mkdir(parents=True)
+            (root / "physical" / "appmanifest_1245620.acf").write_text(
+                '"buildid" "99999999"\n',
+                encoding="utf-8",
+            )
+            lexical_game = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "common"
+                / "ELDEN RING"
+                / "Game"
+            )
+            lexical_game.mkdir(parents=True)
+            (lexical_game.parents[2] / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            def same_identity(left: Path, right: Path) -> bool:
+                return left == lexical_game and right == game
+
+            with (
+                mock.patch.object(patcher_gui, "_steam_roots", return_value=[]),
+                mock.patch.object(
+                    patcher_gui,
+                    "_same_directory_identity",
+                    side_effect=same_identity,
+                ),
+            ):
+                info = patcher_gui.steam_build_info(
+                    game,
+                    game_path_hints=(lexical_game,),
+                )
+
+            self.assertEqual(
+                info,
+                patcher_gui.SteamBuildInfo("25080141", "identified"),
+            )
+
+    def test_finds_manifest_through_registered_library_for_same_game(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "physical" / "ELDEN RING" / "Game"
+            game.mkdir(parents=True)
+            library = root / "SteamLibrary"
+            steamapps = library / "steamapps"
+            steamapps.mkdir(parents=True)
+            (steamapps / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(
+                    patcher_gui, "_steam_roots", return_value=[library]
+                ),
+                mock.patch.object(
+                    patcher_gui,
+                    "_steam_libraries",
+                    return_value=[library],
+                ),
+                mock.patch.object(
+                    patcher_gui, "_same_directory_identity", return_value=True
+                ) as same_directory,
+            ):
+                info = patcher_gui.steam_build_info(game)
+
+            self.assertEqual(info, patcher_gui.SteamBuildInfo("25080141", "identified"))
+            same_directory.assert_called()
+
+    def test_does_not_borrow_manifest_from_another_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "copied" / "ELDEN RING" / "Game"
+            game.mkdir(parents=True)
+            library = root / "SteamLibrary"
+            steamapps = library / "steamapps"
+            steamapps.mkdir(parents=True)
+            (steamapps / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(
+                    patcher_gui, "_steam_roots", return_value=[library]
+                ),
+                mock.patch.object(
+                    patcher_gui,
+                    "_steam_libraries",
+                    return_value=[library],
+                ),
+                mock.patch.object(
+                    patcher_gui, "_same_directory_identity", return_value=False
+                ),
+            ):
+                info = patcher_gui.steam_build_info(game)
+
+            self.assertIsNone(info.build_id)
+            self.assertEqual(info.status, "manifest_not_linked")
+            with self.assertRaises(patcher_gui.SteamDetectionError):
+                patcher_gui.require_supported_build(game, info)
+
+    def test_direct_manifest_must_name_the_selected_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            steamapps = Path(temporary) / "steamapps"
+            selected = steamapps / "common" / "ELDEN RING COPY" / "Game"
+            selected.mkdir(parents=True)
+            (steamapps / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(patcher_gui, "_steam_roots", return_value=[]):
+                info = patcher_gui.steam_build_info(selected)
+
+            self.assertEqual(
+                info,
+                patcher_gui.SteamBuildInfo(None, "manifest_not_linked"),
+            )
 
     def test_install_worker_rejects_build_before_creating_engine(self) -> None:
         app = mock.Mock()
