@@ -10,58 +10,105 @@ from patcher import patcher_gui
 
 
 class GuiIntegrationTests(unittest.TestCase):
-    def test_v095_production_installation_is_enabled(self) -> None:
-        self.assertEqual(patcher_gui.PATCHER_VERSION, "0.9.5")
+    def test_v096_production_installation_is_enabled(self) -> None:
+        self.assertEqual(patcher_gui.PATCHER_VERSION, "0.9.6")
         self.assertFalse(patcher_gui.INSTALLATION_SUSPENDED)
 
-    def test_startup_never_labels_an_unsupported_build_as_ready(self) -> None:
+    def test_success_message_never_treats_appmanifest_as_online_proof(self) -> None:
+        message = patcher_gui.INSTALLATION_SUCCESS_MESSAGE
+
+        self.assertIn("appmanifest e apenas informativo", message)
+        self.assertIn("confirme que a Steam reconhece", message)
+        self.assertNotIn("online confirmado", message.casefold())
+
+    def test_startup_does_not_block_a_conflicting_optional_manifest(self) -> None:
         app = mock.Mock()
         info = patcher_gui.SteamBuildInfo("99999999", "identified")
 
-        patcher_gui.PatcherApp._finish_startup_status(app, info)
+        with mock.patch.object(
+            patcher_gui,
+            "validate_game_archive_profile",
+            return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+        ):
+            patcher_gui.PatcherApp._finish_startup_status(
+                app, Path("selected-game"), info
+            )
 
         app._set_stage.assert_called_once_with(
-            "unsupported_build",
-            "Versao nao suportada (99999999) [ERPT-COMPAT-001]; "
-            "abra Diagnostico para copiar o relatorio.",
+            "ready",
+            "Pre-verificacao dos arquivos concluida; manifesto opcional e "
+            "Steam/online nao confirmados. Pronto para a validacao completa.",
             finished=True,
         )
-        error = app._record_error.call_args.args[0]
-        self.assertIsInstance(error, patcher_gui.UnsupportedBuildError)
-        self.assertIs(error.build_info, info)
+        app._record_error.assert_not_called()
 
-    def test_startup_does_not_call_a_missing_manifest_an_unsupported_version(
+    def test_startup_accepts_authenticated_files_when_manifest_is_missing(
         self,
     ) -> None:
         app = mock.Mock()
         info = patcher_gui.SteamBuildInfo(None, "manifest_missing")
 
-        patcher_gui.PatcherApp._finish_startup_status(app, info)
+        with mock.patch.object(
+            patcher_gui,
+            "validate_game_archive_profile",
+            return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+        ):
+            patcher_gui.PatcherApp._finish_startup_status(
+                app, Path("selected-game"), info
+            )
 
         app._set_stage.assert_called_once_with(
-            "steam_detection_failed",
-            "Instalacao Steam nao confirmada [ERPT-STEAM-001]; "
-            "abra Diagnostico para copiar o relatorio.",
+            "ready",
+            "Pre-verificacao dos arquivos concluida; manifesto opcional e "
+            "Steam/online nao confirmados. Pronto para a validacao completa.",
             finished=True,
         )
-        error = app._record_error.call_args.args[0]
-        self.assertIsInstance(error, patcher_gui.SteamDetectionError)
-        self.assertNotIn("VERSAO DO JOGO NAO SUPORTADA", str(error))
-        self.assertIn("nao significa", str(error))
+        app._record_error.assert_not_called()
 
     def test_startup_labels_only_the_pinned_build_as_ready(self) -> None:
         app = mock.Mock()
         info = patcher_gui.SteamBuildInfo("25080141", "identified")
 
         with mock.patch.object(patcher_gui, "INSTALLATION_SUSPENDED", False):
-            patcher_gui.PatcherApp._finish_startup_status(app, info)
+            with mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+            ):
+                patcher_gui.PatcherApp._finish_startup_status(
+                    app, Path("selected-game"), info
+                )
 
         app._record_error.assert_not_called()
         app._set_stage.assert_called_once_with(
             "ready",
-            "Jogo compativel detectado; pronto para instalar.",
+            "Pre-verificacao dos arquivos concluida; o manifesto informa o BuildID "
+            "esperado, mas nao confirma Steam/online. Pronto para a validacao completa.",
             finished=True,
         )
+
+    def test_startup_rejects_real_files_outside_the_profile(self) -> None:
+        app = mock.Mock()
+        info = patcher_gui.SteamBuildInfo("25080141", "identified")
+
+        with mock.patch.object(
+            patcher_gui,
+            "validate_game_archive_profile",
+            side_effect=patcher_gui.CompatibilityError("sd.bhd divergente"),
+        ):
+            patcher_gui.PatcherApp._finish_startup_status(
+                app, Path("selected-game"), info
+            )
+
+        app._set_stage.assert_called_once_with(
+            "game_files_unsupported",
+            "Arquivos do jogo nao homologados [ERPT-FILES-001]; "
+            "abra Diagnostico para copiar o relatorio.",
+            finished=True,
+        )
+        recorded = app._record_error.call_args.args[0]
+        self.assertIsInstance(recorded, patcher_gui.GameFilesCompatibilityError)
+        self.assertIn("sd.bhd divergente", str(recorded))
 
     @staticmethod
     def _diagnostic_state_stub() -> patcher_gui.PatcherApp:
@@ -193,9 +240,21 @@ class GuiIntegrationTests(unittest.TestCase):
             )
 
             self.assertEqual(patcher_gui.steam_build_id(game), "25080141")
-            self.assertEqual(patcher_gui.require_supported_build(game), "25080141")
+            with mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+            ):
+                compatibility = patcher_gui.require_supported_build(game)
 
-    def test_rejects_a_different_steam_build(self) -> None:
+            self.assertIn(
+                patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+                compatibility,
+            )
+            self.assertIn("BuildID esperado 25080141", compatibility)
+            self.assertIn("nao sao confirmados pelo manifesto", compatibility)
+
+    def test_different_manifest_build_is_only_an_auxiliary_warning(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             steamapps = Path(temporary) / "steamapps"
             game = steamapps / "common" / "ELDEN RING" / "Game"
@@ -205,17 +264,34 @@ class GuiIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(
-                patcher_gui.UnsupportedBuildError,
-                r"ERPT-COMPAT-001[\s\S]*Nenhum arquivo foi alterado",
-            ) as raised:
-                patcher_gui.require_supported_build(game)
+            with mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+            ):
+                result = patcher_gui.require_supported_build(game)
 
-            self.assertEqual(raised.exception.code, "ERPT-COMPAT-001")
-            self.assertEqual(raised.exception.build_info.build_id, "99999999")
-            self.assertEqual(raised.exception.build_info.status, "identified")
+            self.assertIn("BuildID 99999999", result)
+            self.assertIn("Steam/online nao confirmados", result)
 
-    def test_missing_manifest_has_an_explicit_detection_status(self) -> None:
+    def test_copied_supported_manifest_cannot_override_wrong_game_files(self) -> None:
+        info = patcher_gui.SteamBuildInfo("25080141", "identified")
+        with (
+            mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                side_effect=patcher_gui.CompatibilityError("sd.bhd divergente"),
+            ),
+            self.assertRaisesRegex(
+                patcher_gui.GameFilesCompatibilityError,
+                r"ERPT-FILES-001[\s\S]*Copiar um appmanifest",
+            ) as raised,
+        ):
+            patcher_gui.require_supported_build(Path("old-game"), info)
+
+        self.assertTrue(raised.exception.before_game_writes)
+
+    def test_missing_manifest_uses_authenticated_local_profile(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             game = (
                 Path(temporary)
@@ -231,11 +307,15 @@ class GuiIntegrationTests(unittest.TestCase):
 
             self.assertIsNone(info.build_id)
             self.assertEqual(info.status, "manifest_missing")
-            with self.assertRaisesRegex(
-                patcher_gui.SteamDetectionError,
-                r"ERPT-STEAM-001[\s\S]*manifesto Steam nao encontrado",
+            with mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
             ):
-                patcher_gui.require_supported_build(game, info)
+                result = patcher_gui.require_supported_build(game, info)
+
+            self.assertIn(patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id, result)
+            self.assertIn("Steam/online nao confirmados", result)
 
     def test_uses_lexical_library_path_after_game_path_was_resolved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -421,8 +501,6 @@ class GuiIntegrationTests(unittest.TestCase):
 
             self.assertIsNone(info.build_id)
             self.assertEqual(info.status, "manifest_not_linked")
-            with self.assertRaises(patcher_gui.SteamDetectionError):
-                patcher_gui.require_supported_build(game, info)
 
     def test_direct_manifest_must_name_the_selected_installation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -442,10 +520,10 @@ class GuiIntegrationTests(unittest.TestCase):
                 patcher_gui.SteamBuildInfo(None, "manifest_not_linked"),
             )
 
-    def test_install_worker_rejects_build_before_creating_engine(self) -> None:
+    def test_install_worker_rejects_incompatible_files_before_creating_engine(self) -> None:
         app = mock.Mock()
-        build_error = patcher_gui.UnsupportedBuildError(
-            patcher_gui.SteamBuildInfo("11111111", "identified"),
+        build_error = patcher_gui.GameFilesCompatibilityError(
+            "sd.bhd divergente",
             before_game_writes=True,
         )
         app._validated_context.side_effect = build_error
@@ -506,6 +584,11 @@ class GuiIntegrationTests(unittest.TestCase):
             patcher_gui.PatcherApp._install_worker(app, "selected-game")
 
         engine_class.assert_called_once()
+        self.assertEqual(engine_class.call_args.args, (game_dir,))
+        self.assertIs(
+            engine_class.call_args.kwargs["archive_profile"],
+            patcher_gui.SUPPORTED_AUDIO_PROFILE,
+        )
         patch_engine.load_archives.assert_called_once_with()
         ensure_payload.assert_called_once()
         build_plan.assert_called_once_with(
@@ -551,6 +634,11 @@ class GuiIntegrationTests(unittest.TestCase):
             patcher_gui.PatcherApp._restore_worker(app, "selected-game")
 
         engine_class.assert_called_once()
+        self.assertEqual(engine_class.call_args.args, (game_dir,))
+        self.assertIs(
+            engine_class.call_args.kwargs["archive_profile"],
+            patcher_gui.SUPPORTED_AUDIO_PROFILE,
+        )
         patch_engine.load_archives.assert_called_once_with()
         patch_engine.restore_current_backup.assert_called_once_with()
         ensure_payload.assert_not_called()
@@ -579,14 +667,102 @@ class GuiIntegrationTests(unittest.TestCase):
         error = app._report_failure.call_args.kwargs["exc"]
         self.assertIn("verificacao da Steam", str(error))
 
-    def test_precommit_build_change_does_not_claim_no_files_changed(self) -> None:
-        error = patcher_gui.UnsupportedBuildError(
-            patcher_gui.SteamBuildInfo("11111111", "identified"),
+    def test_precommit_file_change_does_not_claim_no_files_changed(self) -> None:
+        error = patcher_gui.GameFilesCompatibilityError(
+            "sd.bhd mudou",
             before_game_writes=False,
         )
 
         self.assertNotIn("Nenhum arquivo foi alterado", str(error))
-        self.assertIn("revalidacao de seguranca", str(error))
+        self.assertIn("revalidacao final", str(error))
+
+    def test_precommit_revalidates_files_without_trusting_manifest(self) -> None:
+        game_dir = Path("selected-game")
+        info = patcher_gui.SteamBuildInfo("25080141", "identified")
+
+        with (
+            mock.patch.object(patcher_gui, "running_blockers", return_value=[]),
+            mock.patch.object(
+                patcher_gui,
+                "steam_build_info",
+                return_value=info,
+            ),
+            mock.patch.object(patcher_gui, "require_supported_build") as require,
+            mock.patch.object(
+                patcher_gui,
+                "optional_movie_payload_present",
+                return_value=False,
+            ),
+        ):
+            patcher_gui.PatcherApp._precommit_guard(
+                game_dir,
+                selected_path=game_dir,
+            )
+
+        require.assert_called_once_with(
+            game_dir,
+            info,
+            before_game_writes=False,
+        )
+
+    def test_precommit_accepts_missing_or_divergent_optional_manifest(self) -> None:
+        game_dir = Path("selected-game")
+        build_infos = (
+            patcher_gui.SteamBuildInfo(None, "manifest_missing"),
+            patcher_gui.SteamBuildInfo("99999999", "identified"),
+        )
+
+        for info in build_infos:
+            with self.subTest(info=info):
+                with (
+                    mock.patch.object(
+                        patcher_gui, "running_blockers", return_value=[]
+                    ),
+                    mock.patch.object(
+                        patcher_gui,
+                        "steam_build_info",
+                        return_value=info,
+                    ),
+                    mock.patch.object(
+                        patcher_gui,
+                        "validate_game_archive_profile",
+                        return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+                    ),
+                    mock.patch.object(
+                        patcher_gui,
+                        "optional_movie_payload_present",
+                        return_value=False,
+                    ),
+                ):
+                    patcher_gui.PatcherApp._precommit_guard(game_dir)
+
+    def test_precommit_still_rejects_wrong_real_files(self) -> None:
+        game_dir = Path("selected-game")
+        info = patcher_gui.SteamBuildInfo(None, "manifest_missing")
+
+        with (
+            mock.patch.object(patcher_gui, "running_blockers", return_value=[]),
+            mock.patch.object(
+                patcher_gui,
+                "steam_build_info",
+                return_value=info,
+            ),
+            mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                side_effect=patcher_gui.CompatibilityError("sd.bhd divergente"),
+            ),
+            mock.patch.object(
+                patcher_gui,
+                "optional_movie_payload_present",
+                return_value=False,
+            ),
+            self.assertRaises(patcher_gui.GameFilesCompatibilityError) as raised,
+        ):
+            patcher_gui.PatcherApp._precommit_guard(game_dir)
+
+        self.assertFalse(raised.exception.before_game_writes)
+        self.assertIn("sd.bhd divergente", str(raised.exception))
 
     def test_error_freezes_stage_elapsed_time_for_later_report(self) -> None:
         app = self._diagnostic_state_stub()

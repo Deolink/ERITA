@@ -53,10 +53,10 @@ def _payload_overrides(
 
 class FinalReleasePayloadTests(unittest.TestCase):
     def test_final_constants_pin_the_reviewed_flat_payload(self) -> None:
-        self.assertEqual(build_source_release.FINAL_VERSION, "v0.9.5")
+        self.assertEqual(build_source_release.FINAL_VERSION, "v0.9.6")
         self.assertEqual(
             build_source_release.FINAL_ARCHIVE_NAME,
-            "ERPT-BR-v0.9.5-Windows.zip",
+            "ERPT-BR-v0.9.6-Windows.zip",
         )
         self.assertEqual(build_source_release.PAYLOAD_ARCHIVE_SIZE, 588_468_447)
         self.assertEqual(
@@ -103,13 +103,13 @@ class FinalReleasePayloadTests(unittest.TestCase):
                     build_source_release.write_payload_members(
                         outer,
                         payload=payload,
-                        package_root="ERPT-BR-v0.9.5",
+                        package_root="ERPT-BR-v0.9.6",
                         expected_identity=identity,
                     )
 
             with zipfile.ZipFile(outer_path, "r") as outer:
                 expected_names = [
-                    f"ERPT-BR-v0.9.5/patch_data/{relative}"
+                    f"ERPT-BR-v0.9.6/patch_data/{relative}"
                     for relative, _data in files
                 ]
                 self.assertEqual(outer.namelist(), expected_names)
@@ -141,14 +141,14 @@ class FinalReleasePayloadTests(unittest.TestCase):
             (root / "interno").mkdir()
             wheelhouse.mkdir()
             (root / "patcher/__init__.py").write_text(
-                '__version__ = "0.9.5"\n', encoding="utf-8", newline="\n"
+                '__version__ = "0.9.6"\n', encoding="utf-8", newline="\n"
             )
             (root / "patcher/patcher_gui.py").write_text(
-                'PATCHER_VERSION = "0.9.5"\n', encoding="utf-8", newline="\n"
+                'PATCHER_VERSION = "0.9.6"\n', encoding="utf-8", newline="\n"
             )
             for command in source_files[2:]:
                 (root / command).write_text(
-                    "@echo off\nrem venv-0.9.5\n",
+                    "@echo off\nrem venv-0.9.6\n",
                     encoding="utf-8",
                     newline="\n",
                 )
@@ -188,7 +188,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
             for relative, data in files:
                 archive.writestr(
                     build_source_release.zip_info(
-                        f"ERPT-BR-v0.9.5/patch_data/{relative}"
+                        f"ERPT-BR-v0.9.6/patch_data/{relative}"
                     ),
                     data,
                 )
@@ -201,7 +201,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
                 entries = [
                     (
                         relative,
-                        archive.getinfo(f"ERPT-BR-v0.9.5/patch_data/{relative}"),
+                        archive.getinfo(f"ERPT-BR-v0.9.6/patch_data/{relative}"),
                     )
                     for relative, _data in files
                 ]
@@ -214,7 +214,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
             for relative, data in files:
                 archive.writestr(
                     build_source_release.zip_info(
-                        f"ERPT-BR-v0.9.5/patch_data/{relative}"
+                        f"ERPT-BR-v0.9.6/patch_data/{relative}"
                     ),
                     data,
                 )
@@ -228,7 +228,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
                 entries = [
                     (
                         relative,
-                        archive.getinfo(f"ERPT-BR-v0.9.5/patch_data/{relative}"),
+                        archive.getinfo(f"ERPT-BR-v0.9.6/patch_data/{relative}"),
                     )
                     for relative, _data in files
                 ]
@@ -257,7 +257,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
                         build_source_release.write_payload_members(
                             outer,
                             payload=payload,
-                            package_root="ERPT-BR-v0.9.5",
+                            package_root="ERPT-BR-v0.9.6",
                             expected_identity=identity,
                         )
 
@@ -269,7 +269,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
             ) as archive:
                 archive.writestr(
                     build_source_release.zip_info(
-                        "ERPT-BR-v0.9.5/patch_data/nested.zip"
+                        "ERPT-BR-v0.9.6/patch_data/nested.zip"
                     ),
                     b"PK\x03\x04",
                 )

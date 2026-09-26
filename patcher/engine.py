@@ -43,6 +43,7 @@ BDT_NAME_RE = re.compile(r"^sd(?:_dlc\d+)?\.bdt$", re.IGNORECASE)
 MIN_MATCH_RATIO = 1.0
 BACKUP_SCHEMA = 1
 COPY_BUFFER_SIZE = 8 * 1024 * 1024
+MAX_BHD_FILE_SIZE = 64 * 1024 * 1024
 BHD_INTEGRITY_STRICT = "strict"
 BHD_INTEGRITY_SCOPED_MOD = "scoped_mod"
 BHD_INTEGRITY_MODES = frozenset(
@@ -52,6 +53,7 @@ TRANSACTION_FILE_RE = re.compile(
     r"^\.erptbr-[0-9a-f]{32}-sd(?:_dlc\d+)?\.bdt\.(?:rollback|displaced)$",
     re.IGNORECASE,
 )
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class PatcherError(RuntimeError):
@@ -70,12 +72,83 @@ class BackupError(PatcherError):
     """Falha ao criar, validar ou restaurar o backup."""
 
 
+class ArchiveProfileError(CompatibilityError, BackupError):
+    """Os arquivos reais nao satisfazem um perfil de audio homologado."""
+
+    code = "ERPT-FILES-001"
+
+
 def _metadata_is_link_or_reparse(metadata: os.stat_result) -> bool:
     if stat.S_ISLNK(metadata.st_mode):
         return True
     reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
     file_attributes = getattr(metadata, "st_file_attributes", 0)
     return bool(reparse_flag and file_attributes & reparse_flag)
+
+
+def _read_regular_file_limited(
+    path: Path,
+    *,
+    max_size: int,
+    label: str,
+) -> bytes:
+    """Read a small authority file without following swaps, links or hardlinks."""
+
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise CompatibilityError(f"Nao foi possivel inspecionar {label}: {exc}") from exc
+    if (
+        _metadata_is_link_or_reparse(before)
+        or not stat.S_ISREG(before.st_mode)
+        or before.st_nlink != 1
+        or before.st_size <= 0
+        or before.st_size > max_size
+    ):
+        raise CompatibilityError(
+            f"{label} nao e um arquivo regular exclusivo dentro do limite de "
+            f"{max_size} bytes."
+        )
+    try:
+        stream = path.open("rb")
+    except OSError as exc:
+        raise CompatibilityError(f"Nao foi possivel abrir {label}: {exc}") from exc
+    try:
+        opened = os.fstat(stream.fileno())
+        current = path.lstat()
+        if (
+            _metadata_is_link_or_reparse(current)
+            or not stat.S_ISREG(opened.st_mode)
+            or not stat.S_ISREG(current.st_mode)
+            or opened.st_nlink != 1
+            or current.st_nlink != 1
+            or opened.st_size != before.st_size
+            or current.st_size != before.st_size
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+            or (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            raise CompatibilityError(f"{label} mudou durante a abertura.")
+        data = stream.read(max_size + 1)
+        opened_after = os.fstat(stream.fileno())
+        current_after = path.lstat()
+        if (
+            len(data) != before.st_size
+            or len(data) > max_size
+            or _metadata_is_link_or_reparse(current_after)
+            or opened_after.st_size != before.st_size
+            or current_after.st_size != before.st_size
+            or opened_after.st_mtime_ns != opened.st_mtime_ns
+            or (opened_after.st_dev, opened_after.st_ino)
+            != (before.st_dev, before.st_ino)
+            or (current_after.st_dev, current_after.st_ino)
+            != (before.st_dev, before.st_ino)
+        ):
+            raise CompatibilityError(f"{label} mudou durante a leitura.")
+        return data
+    except OSError as exc:
+        raise CompatibilityError(f"Falha ao ler {label}: {exc}") from exc
+    finally:
+        stream.close()
 
 
 def _absolute_without_resolving(path: str | os.PathLike[str]) -> Path:
@@ -240,6 +313,42 @@ class Archive:
     bdt_mtime_ns: int
     entries: tuple[FileEntry, ...]
     salt: bytes = b""
+    rsa_encrypted_bhd: bool = False
+
+
+@dataclass(frozen=True)
+class ArchiveFingerprint:
+    """Identidade imutavel de um par BHD/BDT vanilla homologado."""
+
+    stem: str
+    bhd_sha256: str
+    bdt_size: int
+    original_bdt_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            not re.fullmatch(r"sd(?:_dlc\d+)?", self.stem, re.IGNORECASE)
+            or not SHA256_RE.fullmatch(self.bhd_sha256)
+            or not isinstance(self.bdt_size, int)
+            or self.bdt_size <= 0
+            or not SHA256_RE.fullmatch(self.original_bdt_sha256)
+        ):
+            raise ValueError(f"Fingerprint de archive invalido: {self.stem!r}.")
+
+
+@dataclass(frozen=True)
+class GameArchiveProfile:
+    """Perfil criptografico dos archives que autorizam um payload."""
+
+    profile_id: str
+    archives: tuple[ArchiveFingerprint, ...]
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", self.profile_id):
+            raise ValueError(f"Identificador de perfil invalido: {self.profile_id!r}.")
+        stems = [item.stem.casefold() for item in self.archives]
+        if not stems or len(stems) != len(set(stems)):
+            raise ValueError("O perfil de archives esta vazio ou possui duplicatas.")
 
 
 @dataclass(frozen=True)
@@ -284,6 +393,26 @@ class PatchPlan:
         for write in self.writes:
             by_path[write.target.archive.bdt_path] = write.target.archive
         return tuple(by_path[path] for path in sorted(by_path, key=str))
+
+
+def _planned_external_wem_ids(plan: PatchPlan) -> frozenset[int]:
+    """Return only numeric WEM ids that have an actual write in ``plan``.
+
+    A BNK may redirect a prefetched sound to an external WEM only when that
+    exact WEM is part of the authenticated plan.  Merely finding a numeric
+    filename in the payload tree is insufficient because it may be unmatched
+    on the target build.
+    """
+
+    result: set[int] = set()
+    for write in plan.writes:
+        source = write.replacement.source_path
+        if source.suffix.lower() != ".wem" or not source.stem.isdecimal():
+            continue
+        wem_id = int(source.stem, 10)
+        if wem_id <= 0xFFFFFFFF:
+            result.add(wem_id)
+    return frozenset(result)
 
 
 @dataclass(frozen=True)
@@ -379,13 +508,29 @@ def rsa_decrypt_bhd(encrypted: bytes, pem_key: str = ELDEN_RING_SD_KEY_PEM) -> b
     key = RSA.import_key(pem_key)
     input_size = (key.size_in_bits() + 7) // 8
     output_size = input_size - 1
+    if not encrypted or len(encrypted) % input_size:
+        raise CompatibilityError(
+            "Indice BHD RSA com quantidade incompleta de blocos."
+        )
     result = bytearray()
     for pos in range(0, len(encrypted), input_size):
         block = encrypted[pos : pos + input_size]
-        if len(block) < input_size:
-            block += b"\0" * (input_size - len(block))
-        value = pow(int.from_bytes(block, "big"), key.e, key.n)
-        result.extend(value.to_bytes(output_size, "big"))
+        ciphertext = int.from_bytes(block, "big")
+        if ciphertext <= 0 or ciphertext >= key.n:
+            raise CompatibilityError(
+                f"Indice BHD RSA possui bloco nao canonico na posicao {pos}."
+            )
+        value = pow(ciphertext, key.e, key.n)
+        if value.bit_length() > output_size * 8:
+            raise CompatibilityError(
+                f"Indice BHD RSA possui bloco decifrado invalido na posicao {pos}."
+            )
+        try:
+            result.extend(value.to_bytes(output_size, "big"))
+        except OverflowError as exc:  # defesa adicional para backends alternativos
+            raise CompatibilityError(
+                f"Indice BHD RSA excede o bloco esperado na posicao {pos}."
+            ) from exc
     return bytes(result)
 
 
@@ -407,6 +552,11 @@ def _validated_bhd5_data_and_salt(data: bytes) -> tuple[bytes, bytes]:
     if declared_size < 28 or declared_size > len(data):
         raise CompatibilityError(
             f"BHD5 com tamanho logico invalido ({declared_size}, buffer={len(data)})."
+        )
+    padding = data[declared_size:]
+    if len(padding) >= 255 or any(padding):
+        raise CompatibilityError(
+            "BHD5 com padding RSA nao canonico depois do tamanho logico."
         )
     if salt_length < 0 or 28 + salt_length > declared_size:
         raise CompatibilityError(f"BHD5 com salt_length invalido: {salt_length}.")
@@ -478,6 +628,8 @@ def validate_patch_plan_sha_integrity(
     archives: Sequence[Archive] | None = None,
     mode: str = BHD_INTEGRITY_STRICT,
     baseline_paths: Mapping[Path, Path] | None = None,
+    merge_bnk_from_baseline: bool = False,
+    require_entry_sha_metadata: bool = False,
 ) -> BHDIntegrityAssessment:
     """Read-only guard for BHD5 salted hashes affected by a patch plan.
 
@@ -494,6 +646,7 @@ def validate_patch_plan_sha_integrity(
     """
 
     selected_mode = _validated_bhd_integrity_mode(mode)
+    external_wem_ids = _planned_external_wem_ids(plan)
     validated_entry_count = 0
     divergent_entries: set[BHDEntryIdentity] = set()
 
@@ -601,10 +754,48 @@ def validate_patch_plan_sha_integrity(
                     "Nenhum arquivo foi alterado."
                 )
 
+            # Materialize every dynamic BNK up front.  A BNK whose bytes happen
+            # to sit outside all declared SHA ranges must still be proven
+            # mergeable before a backup is published or staging begins.
+            if merge_bnk_from_baseline:
+                for _write_index, (_start, _end, write) in enumerate(intervals):
+                    if write.replacement.source_path.suffix.lower() != ".bnk":
+                        continue
+                    source_data = write.replacement.source_path.read_bytes()
+                    if hashlib.sha256(source_data).hexdigest() != write.source_sha256:
+                        raise PatcherError(
+                            "O payload mudou durante a verificacao de integridade: "
+                            f"{write.replacement.source_relative}. Nenhum arquivo foi alterado."
+                        )
+                    _materialize_prepared_slot(
+                        source_data,
+                        write.replacement.source_path.suffix,
+                        write.target.entry,
+                        baseline_stream=stream,
+                        archive_name=archive_path.name,
+                        external_wem_ids=external_wem_ids,
+                        merge_bnk_from_baseline=True,
+                    )
+
             for entry_index, entry in enumerate(archive.entries):
                 sha_info = entry.sha_info
                 if sha_info is None:
+                    if require_entry_sha_metadata:
+                        raise CompatibilityError(
+                            f"Entrada sem SHA salted em {archive_path.name}: "
+                            f"0x{entry.file_name_hash:016x}. O modo estrutural exige "
+                            "integridade para todas as entradas. Nenhum arquivo foi alterado."
+                        )
                     continue
+                if require_entry_sha_metadata and not any(
+                    item.start_offset >= 0 and item.end_offset > item.start_offset
+                    for item in sha_info.ranges
+                ):
+                    raise CompatibilityError(
+                        f"Entrada sem range SHA utilizavel em {archive_path.name}: "
+                        f"0x{entry.file_name_hash:016x}. O modo estrutural exige "
+                        "integridade para todas as entradas. Nenhum arquivo foi alterado."
+                    )
                 validated_entry_count += 1
                 if len(sha_info.hash_bytes) != hashlib.sha256().digest_size:
                     raise CompatibilityError(
@@ -615,6 +806,10 @@ def validate_patch_plan_sha_integrity(
                 current_digest = hashlib.sha256()
                 planned_digest = hashlib.sha256()
                 changed_by: str | None = None
+                # Keep at most the prepared writes overlapping this one BHD
+                # entry.  The production payload is hundreds of MiB; caching
+                # the complete normalized tree would create an avoidable RAM
+                # spike during the read-only guard.
                 prepared_cache: dict[int, bytes] = {}
                 for range_index, item in enumerate(sha_info.ranges):
                     if item.start_offset == -1 or item.end_offset == -1:
@@ -665,10 +860,16 @@ def validate_patch_plan_sha_integrity(
                                             f"integridade: {write.replacement.source_relative}. "
                                             "Nenhum arquivo foi alterado."
                                         )
-                                    prepared = prepare_slot(
+                                    prepared = _materialize_prepared_slot(
                                         source_data,
                                         write.replacement.source_path.suffix,
                                         write.target.entry,
+                                        baseline_stream=stream,
+                                        archive_name=archive_path.name,
+                                        external_wem_ids=external_wem_ids,
+                                        merge_bnk_from_baseline=(
+                                            merge_bnk_from_baseline
+                                        ),
                                     )
                                     del source_data
                                     prepared_cache[write_index] = prepared
@@ -902,6 +1103,8 @@ def validate_staged_patch_sha_integrity(
     staging_paths: Mapping[Path, Path],
     expected_divergent_entries: AbstractSet[BHDEntryIdentity],
     staging_identities: Mapping[Path, tuple[int, int]] | None = None,
+    merge_bnk_from_baseline: bool = False,
+    require_entry_sha_metadata: bool = False,
 ) -> BHDIntegrityAssessment:
     """Prove that staging is exactly baseline plus this plan, with no spillover.
 
@@ -911,6 +1114,7 @@ def validate_staged_patch_sha_integrity(
     """
 
     expected_divergences = frozenset(expected_divergent_entries)
+    external_wem_ids = _planned_external_wem_ids(plan)
     if any(not isinstance(item, BHDEntryIdentity) for item in expected_divergences):
         raise TypeError("expected_divergent_entries deve conter BHDEntryIdentity.")
 
@@ -1043,10 +1247,14 @@ def validate_staged_patch_sha_integrity(
                         "O payload mudou antes da verificacao do staging: "
                         f"{write.replacement.source_relative}."
                     )
-                expected_slot = prepare_slot(
+                expected_slot = _materialize_prepared_slot(
                     source_data,
                     write.replacement.source_path.suffix,
                     entry,
+                    baseline_stream=baseline_stream,
+                    archive_name=live_path.name,
+                    external_wem_ids=external_wem_ids,
+                    merge_bnk_from_baseline=merge_bnk_from_baseline,
                 )
                 stage_stream.seek(start)
                 actual_slot = stage_stream.read(len(expected_slot))
@@ -1068,7 +1276,20 @@ def validate_staged_patch_sha_integrity(
 
             for entry_index, entry in enumerate(archive.entries):
                 if entry.sha_info is None:
+                    if require_entry_sha_metadata:
+                        raise CompatibilityError(
+                            f"Entrada sem SHA salted no baseline de {live_path.name}: "
+                            f"0x{entry.file_name_hash:016x}."
+                        )
                     continue
+                if require_entry_sha_metadata and not any(
+                    item.start_offset >= 0 and item.end_offset > item.start_offset
+                    for item in entry.sha_info.ranges
+                ):
+                    raise CompatibilityError(
+                        f"Entrada sem range SHA utilizavel no baseline de "
+                        f"{live_path.name}: 0x{entry.file_name_hash:016x}."
+                    )
                 validated_entry_count += 1
                 identity = _bhd_entry_identity(archive, entry_index, entry)
                 known_identities.add(identity)
@@ -1414,6 +1635,45 @@ def prepare_bnk_slot_from_baseline(
     return prepare_slot(merged, ".bnk", entry)
 
 
+def _materialize_prepared_slot(
+    source_data: bytes,
+    source_suffix: str,
+    entry: FileEntry,
+    *,
+    baseline_stream: BinaryIO | None,
+    archive_name: str,
+    external_wem_ids: AbstractSet[int],
+    merge_bnk_from_baseline: bool,
+) -> bytes:
+    """Build the exact encrypted slot bytes used by every validation phase.
+
+    In structural compatibility mode a BNK is never copied wholesale.  It is
+    merged over the immutable vanilla slot belonging to the target build.  All
+    callers (SHA simulation, staging write and staging verification) use this
+    one helper so none of those phases can disagree about the authorized bytes.
+    """
+
+    if source_suffix.lower() != ".bnk" or not merge_bnk_from_baseline:
+        return prepare_slot(source_data, source_suffix, entry)
+    if baseline_stream is None:
+        raise CompatibilityError(
+            f"Baseline ausente para mesclar BNK em {archive_name}."
+        )
+    baseline_stream.seek(entry.file_offset)
+    encrypted_baseline_slot = baseline_stream.read(entry.padded_file_size)
+    if len(encrypted_baseline_slot) != entry.padded_file_size:
+        raise CompatibilityError(
+            f"Leitura incompleta do baseline de {archive_name} para o slot BNK "
+            f"0x{entry.file_name_hash:016x}."
+        )
+    return prepare_bnk_slot_from_baseline(
+        source_data,
+        encrypted_baseline_slot,
+        entry,
+        external_wem_ids=external_wem_ids,
+    )
+
+
 def _optional_stat_field_unchanged(
     before: os.stat_result,
     after: os.stat_result,
@@ -1532,6 +1792,60 @@ def sha256_file(path: Path, callback: Callable[[int], None] | None = None) -> st
     finally:
         stream.close()
     return digest.hexdigest()
+
+
+def validate_game_archive_profile(
+    game_dir: str | Path,
+    profile: GameArchiveProfile,
+) -> str:
+    """Autentica rapidamente BHDs e tamanhos BDT sem ler os BDTs multi-GiB."""
+
+    sd_dir = Path(game_dir).resolve() / "sd"
+    if not sd_dir.is_dir():
+        raise ArchiveProfileError("Pasta de audio sd nao encontrada.")
+    expected = {item.stem.casefold(): item for item in profile.archives}
+    observed_bhds = {
+        path.stem.casefold(): path
+        for path in sd_dir.glob("sd*.bhd")
+        if ARCHIVE_NAME_RE.fullmatch(path.name)
+    }
+    if set(observed_bhds) != set(expected):
+        missing = sorted(set(expected).difference(observed_bhds))
+        extra = sorted(set(observed_bhds).difference(expected))
+        raise ArchiveProfileError(
+            "Conjunto de archives de audio fora do perfil homologado "
+            f"(ausentes={missing}, extras={extra})."
+        )
+    for stem, fingerprint in expected.items():
+        bhd_path = observed_bhds[stem]
+        try:
+            bhd_digest = sha256_file(bhd_path)
+        except (BackupError, OSError) as exc:
+            raise ArchiveProfileError(
+                f"{bhd_path.name} nao pode ser autenticado com seguranca: {exc}"
+            ) from exc
+        if bhd_digest != fingerprint.bhd_sha256:
+            raise ArchiveProfileError(
+                f"{bhd_path.name} nao corresponde ao perfil {profile.profile_id}."
+            )
+        bdt_path = bhd_path.with_suffix(".bdt")
+        try:
+            metadata = bdt_path.lstat()
+        except OSError as exc:
+            raise ArchiveProfileError(
+                f"Par BDT ausente ou ilegivel para {bhd_path.name}."
+            ) from exc
+        if (
+            _metadata_is_link_or_reparse(metadata)
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_size != fingerprint.bdt_size
+        ):
+            raise ArchiveProfileError(
+                f"{bdt_path.name} nao e um arquivo regular exclusivo com o tamanho "
+                f"do perfil {profile.profile_id}."
+            )
+    return profile.profile_id
 
 
 def _copy_with_sha256(source: Path, destination: Path) -> str:
@@ -1922,6 +2236,7 @@ class BackupManager:
         backup_root: Path | None = None,
         log: Callable[[str], None] | None = None,
         precommit_guard: Callable[[], None] | None = None,
+        expected_original_sha256: Mapping[str, str] | None = None,
     ) -> None:
         if not archives:
             raise BackupError("Nenhum arquivo BDT seria modificado.")
@@ -1934,6 +2249,21 @@ class BackupManager:
         )
         self.log = log or (lambda _message: None)
         self.precommit_guard = precommit_guard or (lambda: None)
+        self.expected_original_sha256 = {
+            name.casefold(): digest
+            for name, digest in (expected_original_sha256 or {}).items()
+        }
+        archive_names = {item.bdt_path.name.casefold() for item in self.archives}
+        if self.expected_original_sha256 and (
+            set(self.expected_original_sha256) != archive_names
+            or any(
+                not SHA256_RE.fullmatch(digest)
+                for digest in self.expected_original_sha256.values()
+            )
+        ):
+            raise ValueError(
+                "Hashes vanilla esperados nao cobrem exatamente os archives."
+            )
         self.game_id = hashlib.sha256(
             str(self.game_dir).casefold().encode("utf-8")
         ).hexdigest()[:16]
@@ -2044,6 +2374,11 @@ class BackupManager:
                 )
             ):
                 raise BackupError(f"Metadados invalidos no backup de {name}.")
+            pinned_original = self.expected_original_sha256.get(name.casefold())
+            if pinned_original is not None and original_digest != pinned_original:
+                raise ArchiveProfileError(
+                    f"O backup original de {name} nao pertence ao perfil homologado."
+                )
             backup_name = record.get("backup")
             if backup_name != f"{name}.backup":
                 raise BackupError(f"Caminho de backup invalido para {name!r}.")
@@ -3016,6 +3351,14 @@ class BackupManager:
                 raise BackupError(
                     f"{archive.bdt_path.name} mudou durante a autenticacao inicial."
                 )
+            pinned_original = self.expected_original_sha256.get(
+                archive.bdt_path.name.casefold()
+            )
+            if pinned_original is not None and digest != pinned_original:
+                raise ArchiveProfileError(
+                    f"{archive.bdt_path.name} nao corresponde ao baseline vanilla "
+                    "do perfil homologado. Nenhum arquivo do jogo foi alterado."
+                )
             baseline_hashes[archive.bdt_path] = digest
 
         # Fix the full-file hashes first, then authenticate the exact live BHD
@@ -3290,12 +3633,48 @@ class PatchEngine:
         log: Callable[[str], None] | None = None,
         backup_root: str | Path | None = None,
         precommit_guard: Callable[[], None] | None = None,
+        archive_profile: GameArchiveProfile | None = None,
+        archive_profiles: Sequence[GameArchiveProfile] = (),
     ) -> None:
         self.game_dir = Path(game_dir).resolve()
         self.sd_dir = self.game_dir / "sd"
         self.log = log or (lambda _message: None)
         self.backup_root = Path(backup_root) if backup_root is not None else None
         self.precommit_guard = precommit_guard or (lambda: None)
+        self.required_archive_profile = archive_profile
+        self.known_archive_profiles = tuple(archive_profiles)
+        if archive_profile is not None and self.known_archive_profiles:
+            raise ValueError(
+                "Use archive_profile para modo estrito ou archive_profiles para "
+                "deteccao automatica, nunca ambos."
+            )
+        profile_ids = [item.profile_id for item in self.known_archive_profiles]
+        if len(profile_ids) != len(set(profile_ids)):
+            raise ValueError("A lista de perfis homologados possui duplicatas.")
+        quick_signatures = [
+            tuple(
+                sorted(
+                    (
+                        archive.stem.casefold(),
+                        archive.bhd_sha256,
+                        archive.bdt_size,
+                    )
+                    for archive in profile.archives
+                )
+            )
+            for profile in self.known_archive_profiles
+        ]
+        if len(quick_signatures) != len(set(quick_signatures)):
+            raise ValueError(
+                "Dois perfis homologados possuem a mesma assinatura rapida de "
+                "BHD/tamanho BDT; o catalogo seria ambiguo."
+            )
+        self.archive_profile: GameArchiveProfile | None = archive_profile
+        # ``archive_profiles`` opts into the universal/historical BNK path.
+        # A strict single ``archive_profile`` keeps the already-published
+        # target-specific payload behavior unchanged.
+        self.merge_bnk_from_baseline = bool(self.known_archive_profiles)
+        self.structural_fallback = False
         self.archives: tuple[Archive, ...] = ()
         self.entry_by_hash: dict[int, list[EntryTarget]] = {}
 
@@ -3442,7 +3821,16 @@ class PatchEngine:
     def load_archives(self) -> int:
         if not self.sd_dir.is_dir():
             raise CompatibilityError(f"Pasta de audio nao encontrada: {self.sd_dir}")
+        # Uma queda de energia pode deixar temporariamente o nome ativo ausente.
+        # Recupere somente esse estado autenticado pelo journal antes de exigir o
+        # perfil rapido; do contrario, a propria protecao de compatibilidade
+        # impediria a restauracao segura que ela deve preservar.
         self._recover_missing_bdts_before_load()
+        if self.required_archive_profile is not None:
+            validate_game_archive_profile(
+                self.game_dir,
+                self.required_archive_profile,
+            )
         archives: list[Archive] = []
         entry_map: dict[int, list[EntryTarget]] = {}
         candidates = sorted(
@@ -3452,15 +3840,30 @@ class PatchEngine:
         )
         for bhd_path in candidates:
             bdt_path = bhd_path.with_suffix(".bdt")
-            if not bdt_path.is_file():
+            try:
+                bdt_metadata = bdt_path.lstat()
+            except OSError as exc:
                 raise CompatibilityError(
                     f"Par ausente para {bhd_path.name}: {bdt_path.name}."
+                ) from exc
+            if (
+                _metadata_is_link_or_reparse(bdt_metadata)
+                or not stat.S_ISREG(bdt_metadata.st_mode)
+                or bdt_metadata.st_nlink != 1
+            ):
+                raise CompatibilityError(
+                    f"{bdt_path.name} nao e um arquivo regular exclusivo."
                 )
-            bdt_size = bdt_path.stat().st_size
-            bdt_mtime_ns = bdt_path.stat().st_mtime_ns
+            bdt_size = bdt_metadata.st_size
+            bdt_mtime_ns = bdt_metadata.st_mtime_ns
             self.log(f"Lendo {bhd_path.name}...")
-            encrypted = bhd_path.read_bytes()
-            if encrypted.startswith(b"BHD5"):
+            encrypted = _read_regular_file_limited(
+                bhd_path,
+                max_size=MAX_BHD_FILE_SIZE,
+                label=f"O indice {bhd_path.name}",
+            )
+            rsa_encrypted_bhd = not encrypted.startswith(b"BHD5")
+            if not rsa_encrypted_bhd:
                 decrypted = encrypted
             else:
                 if not encrypted or len(encrypted) % 256:
@@ -3477,6 +3880,7 @@ class PatchEngine:
                 bdt_mtime_ns=bdt_mtime_ns,
                 entries=entries,
                 salt=parse_bhd5_salt(decrypted),
+                rsa_encrypted_bhd=rsa_encrypted_bhd,
             )
             archives.append(archive)
             for entry in entries:
@@ -3488,9 +3892,93 @@ class PatchEngine:
             raise CompatibilityError(
                 "Nenhum par sd*.bhd/sd*.bdt compativel foi encontrado."
             )
+        if self.required_archive_profile is not None:
+            expected = {
+                item.stem.casefold(): item
+                for item in self.required_archive_profile.archives
+            }
+            observed = {
+                item.bdt_path.stem.casefold(): item for item in archives
+            }
+            if set(observed) != set(expected) or any(
+                observed[stem].bhd_sha256 != fingerprint.bhd_sha256
+                or observed[stem].bdt_size != fingerprint.bdt_size
+                for stem, fingerprint in expected.items()
+            ):
+                raise CompatibilityError(
+                    "Os archives mudaram durante a validacao do perfil "
+                    f"{self.required_archive_profile.profile_id}."
+                )
+            self.archive_profile = self.required_archive_profile
+            self.structural_fallback = False
+        else:
+            self.archive_profile = next(
+                (
+                    profile
+                    for profile in self.known_archive_profiles
+                    if self._archives_match_profile(archives, profile)
+                ),
+                None,
+            )
+            self.structural_fallback = bool(self.known_archive_profiles) and (
+                self.archive_profile is None
+            )
+            if self.structural_fallback:
+                plaintext_indexes = sorted(
+                    archive.bhd_path.name
+                    for archive in archives
+                    if not archive.rsa_encrypted_bhd
+                )
+                if plaintext_indexes:
+                    raise CompatibilityError(
+                        "Este build ainda nao esta catalogado e usa indice BHD "
+                        "sem o envelope RSA oficial: "
+                        f"{', '.join(plaintext_indexes)}. O modo estrutural nao "
+                        "aceita um indice autoconsistente criado localmente. "
+                        "Nenhum arquivo foi alterado."
+                    )
+                unauthenticated_entries = sum(
+                    entry.sha_info is None
+                    or not any(
+                        item.start_offset >= 0
+                        and item.end_offset > item.start_offset
+                        for item in entry.sha_info.ranges
+                    )
+                    for archive in archives
+                    for entry in archive.entries
+                )
+                if unauthenticated_entries:
+                    raise CompatibilityError(
+                        "Este build ainda nao esta catalogado e possui "
+                        f"{unauthenticated_entries} entradas sem SHA salted no BHD. "
+                        "A analise automatica nao pode autorizar a instalacao com "
+                        "seguranca. Nenhum arquivo foi alterado."
+                    )
+                self.log(
+                    "Build nao catalogado: usando compatibilidade estrutural "
+                    "adaptativa e os ranges SHA salted disponiveis no indice."
+                )
+            elif self.archive_profile is not None:
+                self.log(
+                    "Perfil homologado reconhecido: "
+                    f"{self.archive_profile.profile_id}."
+                )
         self.archives = tuple(archives)
         self.entry_by_hash = entry_map
         return sum(len(item.entries) for item in archives)
+
+    @staticmethod
+    def _archives_match_profile(
+        archives: Sequence[Archive],
+        profile: GameArchiveProfile,
+    ) -> bool:
+        expected = {item.stem.casefold(): item for item in profile.archives}
+        observed = {item.bdt_path.stem.casefold(): item for item in archives}
+        return set(observed) == set(expected) and all(
+            observed[stem].bhd_sha256 == fingerprint.bhd_sha256
+            and observed[stem].bdt_size == fingerprint.bdt_size
+            for stem, fingerprint in expected.items()
+        )
 
     @staticmethod
     def _candidate_game_paths(relative: str, suffix: str, stem: str) -> tuple[str, ...]:
@@ -3569,15 +4057,23 @@ class PatchEngine:
             source_digest = hashlib.sha256(source_data).hexdigest()
             payload_file_sha256[replacement.source_relative] = source_digest
             for target in replacement.targets:
-                try:
-                    prepared_slot = prepare_slot(
-                        source_data, replacement.source_path.suffix, target.entry
-                    )
-                except CompatibilityError as exc:
-                    raise CompatibilityError(
-                        f"Payload incompativel em {replacement.source_relative} para "
-                        f"{target.archive.bdt_path.name}: {exc} Nenhum arquivo foi alterado."
-                    ) from exc
+                dynamic_bnk = (
+                    self.merge_bnk_from_baseline
+                    and replacement.source_path.suffix.lower() == ".bnk"
+                )
+                prepared_slot: bytes | None = None
+                if not dynamic_bnk:
+                    try:
+                        prepared_slot = prepare_slot(
+                            source_data,
+                            replacement.source_path.suffix,
+                            target.entry,
+                        )
+                    except CompatibilityError as exc:
+                        raise CompatibilityError(
+                            f"Payload incompativel em {replacement.source_relative} para "
+                            f"{target.archive.bdt_path.name}: {exc} Nenhum arquivo foi alterado."
+                        ) from exc
                 candidate = PreparedWrite(replacement, target, source_digest)
                 key = (target.archive.bdt_path, target.entry.file_offset)
                 previous = writes_by_target.get(key)
@@ -3588,6 +4084,15 @@ class PatchEngine:
                         raise CompatibilityError(
                             "Dois arquivos do payload tentam escrever o mesmo offset "
                             "com metadados de slot diferentes: "
+                            f"{previous.replacement.source_relative} e "
+                            f"{replacement.source_relative}. Nenhum arquivo foi alterado."
+                        )
+                    if (
+                        previous.replacement.source_path.suffix.lower()
+                        != replacement.source_path.suffix.lower()
+                    ):
+                        raise CompatibilityError(
+                            "Dois tipos de payload tentam escrever o mesmo slot: "
                             f"{previous.replacement.source_relative} e "
                             f"{replacement.source_relative}. Nenhum arquivo foi alterado."
                         )
@@ -3608,26 +4113,27 @@ class PatchEngine:
                             f"{previous.replacement.source_relative} e "
                             f"{replacement.source_relative}. Nenhum arquivo foi alterado."
                         )
-                    try:
-                        previous_slot = prepare_slot(
-                            previous_data,
-                            previous.replacement.source_path.suffix,
-                            previous.target.entry,
-                        )
-                    except CompatibilityError as exc:
-                        raise CompatibilityError(
-                            "Payload incompativel em "
-                            f"{previous.replacement.source_relative} para "
-                            f"{target.archive.bdt_path.name}: {exc} "
-                            "Nenhum arquivo foi alterado."
-                        ) from exc
-                    if previous_slot != prepared_slot:
-                        raise CompatibilityError(
-                            "Dois arquivos do payload tentam escrever conteudos diferentes "
-                            "no mesmo slot: "
-                            f"{previous.replacement.source_relative} e "
-                            f"{replacement.source_relative}. Nenhum arquivo foi alterado."
-                        )
+                    if not dynamic_bnk:
+                        try:
+                            previous_slot = prepare_slot(
+                                previous_data,
+                                previous.replacement.source_path.suffix,
+                                previous.target.entry,
+                            )
+                        except CompatibilityError as exc:
+                            raise CompatibilityError(
+                                "Payload incompativel em "
+                                f"{previous.replacement.source_relative} para "
+                                f"{target.archive.bdt_path.name}: {exc} "
+                                "Nenhum arquivo foi alterado."
+                            ) from exc
+                        if previous_slot != prepared_slot:
+                            raise CompatibilityError(
+                                "Dois arquivos do payload tentam escrever conteudos diferentes "
+                                "no mesmo slot: "
+                                f"{previous.replacement.source_relative} e "
+                                f"{replacement.source_relative}. Nenhum arquivo foi alterado."
+                            )
 
                     # O payload historico possui alguns aliases na raiz e em
                     # enus/. Quando os bytes preparados sao identicos, mantenha
@@ -3697,12 +4203,23 @@ class PatchEngine:
         )
 
     def _backup_manager(self, archives: Sequence[Archive]) -> BackupManager:
+        expected_original: dict[str, str] | None = None
+        if self.archive_profile is not None:
+            profile_hashes = {
+                f"{item.stem}.bdt".casefold(): item.original_bdt_sha256
+                for item in self.archive_profile.archives
+            }
+            expected_original = {
+                archive.bdt_path.name: profile_hashes[archive.bdt_path.name.casefold()]
+                for archive in archives
+            }
         return BackupManager(
             self.game_dir,
             archives,
             backup_root=self.backup_root,
             log=self.log,
             precommit_guard=self.precommit_guard,
+            expected_original_sha256=expected_original,
         )
 
     def apply_plan(
@@ -3759,6 +4276,8 @@ class PatchEngine:
                 plan,
                 archives=self.archives,
                 mode=selected_integrity_mode,
+                merge_bnk_from_baseline=self.merge_bnk_from_baseline,
+                require_entry_sha_metadata=self.structural_fallback,
             )
 
         manifest, created, pre_hashes = manager.prepare(
@@ -3781,6 +4300,8 @@ class PatchEngine:
                     / records[archive.bdt_path.name]["backup"]
                     for archive in self.archives
                 },
+                merge_bnk_from_baseline=self.merge_bnk_from_baseline,
+                require_entry_sha_metadata=self.structural_fallback,
             )
         newly_touched = {archive.bdt_path for archive in plan.touched_archives}
         previously_patched = {
@@ -3841,7 +4362,9 @@ class PatchEngine:
         stage_by_live: dict[Path, Path] = {}
         stage_identity_by_live: dict[Path, tuple[int, int]] = {}
         rollback_by_live: dict[Path, Path] = {}
-        handles: dict[Path, object] = {}
+        handles: dict[Path, BinaryIO] = {}
+        baseline_handles: dict[Path, tuple[BinaryIO, os.stat_result, Path]] = {}
+        external_wem_ids = _planned_external_wem_ids(plan)
         try:
             for archive in archives_to_stage:
                 record = records[archive.bdt_path.name]
@@ -3863,16 +4386,33 @@ class PatchEngine:
                 handles[archive.bdt_path] = _open_owned_regular_for_update(
                     stage_path, stage_identity, label="A copia de staging"
                 )
+                baseline_stream, baseline_opened = _open_bdt_for_integrity(
+                    backup_path,
+                    expected_size=archive.bdt_size,
+                    label=f"O baseline de {archive.bdt_path.name}",
+                )
+                baseline_handles[archive.bdt_path] = (
+                    baseline_stream,
+                    baseline_opened,
+                    backup_path,
+                )
             for index, write in enumerate(plan.writes, start=1):
                 source_data = write.replacement.source_path.read_bytes()
                 if hashlib.sha256(source_data).hexdigest() != write.source_sha256:
                     raise PatcherError(
                         f"O payload mudou durante a instalacao: {write.replacement.source_relative}."
                     )
-                slot = prepare_slot(
+                baseline_stream = baseline_handles[
+                    write.target.archive.bdt_path
+                ][0]
+                slot = _materialize_prepared_slot(
                     source_data,
                     write.replacement.source_path.suffix,
                     write.target.entry,
+                    baseline_stream=baseline_stream,
+                    archive_name=write.target.archive.bdt_path.name,
+                    external_wem_ids=external_wem_ids,
+                    merge_bnk_from_baseline=self.merge_bnk_from_baseline,
                 )
                 stream = handles[write.target.archive.bdt_path]
                 stream.seek(write.target.entry.file_offset)
@@ -3893,10 +4433,22 @@ class PatchEngine:
             self.log("Verificando os arquivos preparados...")
             for index, write in enumerate(plan.writes, start=1):
                 source_data = write.replacement.source_path.read_bytes()
-                expected = prepare_slot(
+                if hashlib.sha256(source_data).hexdigest() != write.source_sha256:
+                    raise PatcherError(
+                        "O payload mudou antes da verificacao do staging: "
+                        f"{write.replacement.source_relative}."
+                    )
+                baseline_stream = baseline_handles[
+                    write.target.archive.bdt_path
+                ][0]
+                expected = _materialize_prepared_slot(
                     source_data,
                     write.replacement.source_path.suffix,
                     write.target.entry,
+                    baseline_stream=baseline_stream,
+                    archive_name=write.target.archive.bdt_path.name,
+                    external_wem_ids=external_wem_ids,
+                    merge_bnk_from_baseline=self.merge_bnk_from_baseline,
                 )
                 stream = handles[write.target.archive.bdt_path]
                 stream.seek(write.target.entry.file_offset)
@@ -3906,9 +4458,23 @@ class PatchEngine:
                         f"Verificacao falhou em {write.target.archive.bdt_path.name}, "
                         f"slot {write.replacement.source_relative}."
                     )
+            for archive in archives_to_stage:
+                baseline_stream, baseline_opened, backup_path = baseline_handles[
+                    archive.bdt_path
+                ]
+                _require_open_bdt_unchanged(
+                    backup_path,
+                    baseline_stream,
+                    baseline_opened,
+                    expected_size=archive.bdt_size,
+                    label=f"O baseline de {archive.bdt_path.name}",
+                )
             for stream in handles.values():
                 stream.close()
             handles.clear()
+            for baseline_stream, _opened, _path in baseline_handles.values():
+                baseline_stream.close()
+            baseline_handles.clear()
 
             staged_assessment = validate_staged_patch_sha_integrity(
                 plan,
@@ -3923,6 +4489,8 @@ class PatchEngine:
                     integrity_assessment.divergent_entries
                 ),
                 staging_identities=stage_identity_by_live,
+                merge_bnk_from_baseline=self.merge_bnk_from_baseline,
+                require_entry_sha_metadata=self.structural_fallback,
             )
             validated_stage_sha256 = dict(
                 staged_assessment.validated_archive_sha256
@@ -4073,6 +4641,12 @@ class PatchEngine:
                 except Exception:
                     pass
             handles.clear()
+            for baseline_stream, _opened, _path in baseline_handles.values():
+                try:
+                    baseline_stream.close()
+                except Exception:
+                    pass
+            baseline_handles.clear()
             self.log("Voltando ao estado exato anterior a esta tentativa...")
             try:
                 manager.recover_pending(manifest)
@@ -4089,6 +4663,11 @@ class PatchEngine:
             for stream in handles.values():
                 try:
                     stream.close()
+                except Exception:
+                    pass
+            for baseline_stream, _opened, _path in baseline_handles.values():
+                try:
+                    baseline_stream.close()
                 except Exception:
                     pass
             for live_path, stage_path in stage_by_live.items():

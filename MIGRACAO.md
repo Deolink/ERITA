@@ -2,9 +2,17 @@
 
 > [!IMPORTANT]
 > O incidente das versões 0.9.1 e 0.9.2 foi corrigido na **0.9.4** e a correção
-> permanece na **0.9.5** para Elden Ring 1.17.1 (Steam BuildID `25080141`). Não
+> permanece na **0.9.6** para Elden Ring 1.17.1 (Steam BuildID auxiliar
+> `25080141`). Não
 > use 0.8.4, 0.9.1 ou 0.9.2 como
 > alternativa: todas usam o pacote de bancos antigo.
+
+> [!WARNING]
+> Não é necessário baixar, copiar ou distribuir `appmanifest_1245620.acf`.
+> Quem já colocou esse arquivo não será bloqueado por isso, mas ele contém apenas
+> metadados locais da Steam e não atualiza o Elden Ring. A compatibilidade é
+> decidida pelos arquivos reais; uma versão antiga não se torna 1.17.1 ao copiar
+> o manifesto.
 
 O executável das versões 0.8.x foi descontinuado. Ele não deve ser usado para
 instalar, atualizar nem restaurar a dublagem depois de uma atualização do jogo.
@@ -18,7 +26,7 @@ sidecars não possuem manifesto nem hash do build.
 ## Procedimento seguro
 
 1. Feche Elden Ring e Easy Anti-Cheat.
-2. Baixe somente `ERPT-BR-v0.9.5-Windows.zip` na página Releases e extraia o ZIP
+2. Baixe somente `ERPT-BR-v0.9.6-Windows.zip` na página Releases e extraia o ZIP
    inteiro.
 3. Abra `ERPT-BR.cmd` e clique em **Corrigir áudio (restaurar)** se houver um
    backup transacional válido das versões 0.9.x.
@@ -42,6 +50,6 @@ e restaurar. Antes de mover ou renomear a biblioteca Steam, restaure o áudio
 original; se ela já foi movida com a dublagem aplicada, verifique a integridade
 pela Steam.
 
-O pacote 0.9.5 instala áudio WEM/BNK. Não copie para ele as pastas antigas
+O pacote 0.9.6 instala áudio WEM/BNK. Não copie para ele as pastas antigas
 `movie` ou `movie_dlc`: o pacote opcional de cutscenes ainda não possui manifesto
 criptográfico público e será recusado.

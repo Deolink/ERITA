@@ -16,7 +16,7 @@ body:
     attributes:
       label: "Versão do ERPT-BR"
       description: "Informe a versão mostrada no instalador ou no nome do arquivo baixado."
-      placeholder: "Ex.: 0.9.5"
+      placeholder: "Ex.: 0.9.6"
     validations:
       required: true
 
@@ -54,7 +54,7 @@ body:
       description: "Escolha a opção mais parecida com o que aconteceu."
       options:
         - "Detecção da pasta do jogo"
-        - "Validação da versão ou BuildID"
+        - "Validação dos arquivos ou do registro Steam"
         - "Carregamento dos arquivos do jogo"
         - "Análise ou planejamento da instalação"
         - "Criação do backup"

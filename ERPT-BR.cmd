@@ -160,7 +160,7 @@ echo.
 echo ERRO: este pacote esta incompleto ou uma dependencia nao passou pelo SHA-256.
 echo O diagnostico ERPT-PACKAGE-001 acima identifica o arquivo exato.
 echo Se abriu o CMD dentro do ZIP, feche esta janela e use Extrair Tudo primeiro.
-echo Use ERPT-BR-v0.9.5-Windows.zip da pagina Releases, extraido por inteiro.
+echo Use ERPT-BR-v0.9.6-Windows.zip da pagina Releases, extraido por inteiro.
 echo Nao use o ZIP automatico chamado apenas de Source code.
 goto :failed
 

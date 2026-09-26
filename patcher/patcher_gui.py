@@ -20,7 +20,7 @@ if (
     _legacy_messagebox.showwarning(
         "ERPT-BR - migracao necessaria",
         "Este executavel foi descontinuado por seguranca e nao aplicara o patch.\n\n"
-        "Baixe o pacote 'ERPT-BR-v0.9.5-Windows.zip' na pagina Releases do projeto, "
+        "Baixe o pacote 'ERPT-BR-v0.9.6-Windows.zip' na pagina Releases do projeto, "
         "extraia-o e execute ERPT-BR.cmd.\n\n"
         "Se uma versao antiga da dublagem ja foi instalada, primeiro use "
         "Steam > Elden Ring > Propriedades > Arquivos instalados > "
@@ -47,12 +47,16 @@ import customtkinter as ctk
 try:  # Suporta ``python -m patcher.patcher_gui`` e execucao direta do arquivo.
     from .engine import (
         BHD_INTEGRITY_SCOPED_MOD,
+        ArchiveFingerprint,
+        ArchiveProfileError,
         BackupError,
         CompatibilityError,
+        GameArchiveProfile,
         LegacyBackupError,
         PatchEngine,
         PatcherError,
         find_incomplete_backups,
+        validate_game_archive_profile,
         validate_game_directory,
     )
     from .patch_data import (
@@ -66,12 +70,16 @@ try:  # Suporta ``python -m patcher.patcher_gui`` e execucao direta do arquivo.
 except ImportError:  # pragma: no cover - caminho usado pelo script interno
     from engine import (
         BHD_INTEGRITY_SCOPED_MOD,
+        ArchiveFingerprint,
+        ArchiveProfileError,
         BackupError,
         CompatibilityError,
+        GameArchiveProfile,
         LegacyBackupError,
         PatchEngine,
         PatcherError,
         find_incomplete_backups,
+        validate_game_archive_profile,
         validate_game_directory,
     )
     from patch_data import (
@@ -84,16 +92,48 @@ except ImportError:  # pragma: no cover - caminho usado pelo script interno
     from diagnostics import build_diagnostic_report
 
 
-PATCHER_VERSION = "0.9.5"
+PATCHER_VERSION = "0.9.6"
 SUPPORTED_GAME_VERSION = "1.17.1"
 SUPPORTED_STEAM_BUILD_IDS = frozenset({"25080141"})
+SUPPORTED_AUDIO_PROFILE = GameArchiveProfile(
+    profile_id="elden-ring-1.17.1-audio",
+    archives=(
+        ArchiveFingerprint(
+            stem="sd",
+            bhd_sha256=(
+                "c62ef231ebdcd91b09349496c6f1ff6f5bc32959cc59bbd0474f90d36b3eb5ec"
+            ),
+            bdt_size=2_308_921_312,
+            original_bdt_sha256=(
+                "2cfc747f4bafef625210a9f0abbdd47f2e076f2576757f31c3b4aeb2e063742d"
+            ),
+        ),
+        ArchiveFingerprint(
+            stem="sd_dlc02",
+            bhd_sha256=(
+                "f8e4be20c1fd1c04b7d287de95d455fe9dceb73d13aaab44450fc03a225dde7e"
+            ),
+            bdt_size=371_868_704,
+            original_bdt_sha256=(
+                "b7f590ea9c8dd9c4fedfb76204516e0c037321170c5c83302b777e58d96cb97c"
+            ),
+        ),
+    ),
+)
 STEAM_APP_ID = "1245620"
 PROJECT_URL = "https://github.com/lorepamplona/ERPT-BR"
-DETAILS_URL = f"{PROJECT_URL}/releases/tag/v0.9.5"
+DETAILS_URL = f"{PROJECT_URL}/releases/tag/v0.9.6"
 # Chave de emergência: pode ser reativada sem remover o fluxo de restauração.
 INSTALLATION_SUSPENDED = False
 COMPATIBILITY_ISSUE_URL = (
     f"{PROJECT_URL}/issues/new?template=compatibilidade.yml"
+)
+INSTALLATION_SUCCESS_MESSAGE = (
+    "A dublagem de audio foi aplicada e verificada.\n\n"
+    "Abra o Elden Ring normalmente pela Steam; este instalador nao substitui "
+    "nem desativa o Easy Anti-Cheat. O appmanifest e apenas informativo: "
+    "confirme que a Steam reconhece e atualiza esta instalacao antes de jogar "
+    "online."
 )
 APP_ROOT = Path(__file__).resolve().parent.parent
 MOVIE_FOLDERS = ("movie", "movie_dlc")
@@ -124,79 +164,28 @@ class SteamBuildInfo:
     status: str
 
 
-class SteamDetectionError(CompatibilityError):
-    """A instalacao Steam nao pode ser vinculada com seguranca ao jogo escolhido."""
+class GameFilesCompatibilityError(CompatibilityError):
+    """Os arquivos reais nao correspondem ao perfil homologado do payload."""
 
-    code = "ERPT-STEAM-001"
+    code = "ERPT-FILES-001"
 
-    def __init__(
-        self, build_info: SteamBuildInfo, *, before_game_writes: bool
-    ) -> None:
-        self.build_info = build_info
+    def __init__(self, detail: str, *, before_game_writes: bool) -> None:
         self.before_game_writes = before_game_writes
-        found = {
-            "manifest_missing": (
-                "manifesto Steam nao encontrado para a pasta selecionada"
-            ),
-            "manifest_unreadable": "manifesto Steam sem acesso de leitura",
-            "buildid_missing": "manifesto Steam sem BuildID",
-            "installdir_missing": "manifesto Steam sem a pasta de instalacao",
-            "layout_unknown": "pasta fora da estrutura reconhecida da Steam",
-            "manifest_not_linked": (
-                "manifesto Steam encontrado, mas vinculado a outra pasta do jogo"
-            ),
-        }.get(build_info.status, "instalacao Steam nao identificada")
         safety_message = (
-            "O patcher parou antes de carregar os arquivos de audio. Nenhum "
-            "arquivo foi alterado."
+            "O patcher parou antes de carregar o payload. Nenhum arquivo foi alterado."
             if before_game_writes
-            else "A mudanca foi detectada durante a revalidacao de seguranca. "
-            "A instalacao nao foi confirmada; preserve os backups e verifique os "
-            "arquivos pela Steam antes de abrir o jogo."
+            else "A mudanca foi detectada na revalidacao final. A troca dos arquivos "
+            "nao foi autorizada."
         )
         super().__init__(
-            f"INSTALACAO STEAM NAO CONFIRMADA [{self.code}]\n\n"
-            f"Detectado: {found}.\n"
-            f"Isso nao significa que Elden Ring {SUPPORTED_GAME_VERSION} seja "
-            "incompativel. O ERPT-BR precisa confirmar o Steam BuildID "
-            f"{', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} no manifesto da mesma "
-            "pasta do jogo.\n\n"
-            "Na Steam, abra Elden Ring > Propriedades > Arquivos instalados > "
-            "Explorar e selecione exatamente a pasta Game mostrada. Se continuar, "
-            "reinicie a Steam e use Verificar integridade dos arquivos.\n\n"
-            f"{safety_message} Use 'Copiar diagnostico' para nos enviar os dados "
-            "tecnicos sem informacoes pessoais."
-        )
-
-
-class UnsupportedBuildError(CompatibilityError):
-    """Versao recusada, preservando se a deteccao precedeu qualquer escrita."""
-
-    code = "ERPT-COMPAT-001"
-
-    def __init__(
-        self, build_info: SteamBuildInfo, *, before_game_writes: bool
-    ) -> None:
-        self.build_info = build_info
-        self.before_game_writes = before_game_writes
-        found = f"Steam BuildID {build_info.build_id or 'nao identificado'}"
-        safety_message = (
-            "O patcher parou antes de carregar os arquivos de audio. Nenhum "
-            "arquivo foi alterado."
-            if before_game_writes
-            else "A mudanca foi detectada durante a revalidacao de seguranca. "
-            "A instalacao nao foi confirmada; preserve os backups e verifique os "
-            "arquivos pela Steam antes de abrir o jogo."
-        )
-        super().__init__(
-            f"VERSAO DO JOGO NAO SUPORTADA [{self.code}]\n\n"
-            f"Detectado: {found}.\n"
-            f"Suportado pelo ERPT-BR {PATCHER_VERSION}: Elden Ring "
-            f"{SUPPORTED_GAME_VERSION}, Steam BuildID "
-            f"{', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))}.\n\n"
-            "Esta versao ainda nao possui um perfil compativel. "
-            f"{safety_message} Use 'Copiar "
-            "diagnostico' para nos enviar os dados tecnicos sem informacoes pessoais."
+            f"ARQUIVOS DO JOGO NAO HOMOLOGADOS [{self.code}]\n\n"
+            f"{detail}\n\n"
+            "Copiar um appmanifest de outra versao nao atualiza o jogo e nao libera "
+            "esta verificacao. Use a Steam para atualizar ou verificar a integridade "
+            "dos arquivos. Uma versao antiga so pode ser suportada com perfil e "
+            "payload proprios, reconstruidos e validados para os arquivos reais "
+            "dela.\n\n"
+            f"{safety_message}"
         )
 
 
@@ -281,7 +270,7 @@ def find_elden_ring() -> Path | None:
             ).is_file():
                 # Preserve o caminho lexical da biblioteca. ``resolve()`` pode
                 # atravessar uma junction e perder o ``steamapps`` que contem o
-                # manifesto usado para autenticar o BuildID.
+                # manifesto usado apenas para informar o BuildID auxiliar.
                 return candidate.absolute()
     return None
 
@@ -333,7 +322,7 @@ def _direct_manifest_paths(
 def steam_build_info(
     game_dir: Path, *, game_path_hints: tuple[Path, ...] = ()
 ) -> SteamBuildInfo:
-    """Le o BuildID apenas de um manifesto ligado a esta pasta do jogo."""
+    """Le o BuildID auxiliar apenas do manifesto ligado a esta pasta."""
 
     # Uma dica lexical serve apenas para reencontrar ``steamapps`` depois que
     # ``resolve()`` atravessa uma junction. Ela nao concede autoridade: precisa
@@ -424,13 +413,27 @@ def require_supported_build(
     before_game_writes: bool = True,
 ) -> str:
     info = build_info or steam_build_info(game_dir)
-    if info.build_id is None:
-        raise SteamDetectionError(info, before_game_writes=before_game_writes)
-    if info.build_id not in SUPPORTED_STEAM_BUILD_IDS:
-        raise UnsupportedBuildError(
-            info, before_game_writes=before_game_writes
+    try:
+        profile_id = validate_game_archive_profile(
+            game_dir,
+            SUPPORTED_AUDIO_PROFILE,
         )
-    return info.build_id
+    except CompatibilityError as exc:
+        raise GameFilesCompatibilityError(
+            str(exc),
+            before_game_writes=before_game_writes,
+        ) from exc
+    if info.build_id in SUPPORTED_STEAM_BUILD_IDS:
+        return (
+            f"pre-verificacao local {profile_id} (manifesto informa o BuildID esperado "
+            f"{info.build_id}; Steam/online nao sao confirmados pelo manifesto)"
+        )
+    if info.build_id is not None:
+        return (
+            f"pre-verificacao local {profile_id} (manifesto informa BuildID "
+            f"{info.build_id}; Steam/online nao confirmados)"
+        )
+    return f"pre-verificacao local {profile_id} (Steam/online nao confirmados)"
 
 
 def running_blockers() -> list[str]:
@@ -609,7 +612,8 @@ class PatcherApp(ctk.CTk):
             self._record_build_info(build_info, detected)
             self.build_var.set(
                 f"ERPT-BR {PATCHER_VERSION} | alvo {SUPPORTED_GAME_VERSION} / "
-                f"build {', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} | detectado: "
+                "BuildID Steam auxiliar esperado "
+                f"{', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} | informado: "
                 f"{build_info.build_id or 'nao identificado'}"
             )
             try:
@@ -651,26 +655,21 @@ class PatcherApp(ctk.CTk):
                     ),
                 )
             elif self._last_error_code is None:
-                self._finish_startup_status(build_info)
+                self._finish_startup_status(detected, build_info)
 
-    def _finish_startup_status(self, build_info: SteamBuildInfo) -> None:
-        """Nunca anuncia compatibilidade antes de validar o BuildID detectado."""
+    def _finish_startup_status(
+        self,
+        game_dir: Path,
+        build_info: SteamBuildInfo,
+    ) -> None:
+        """Anuncia apenas a pre-verificacao; o engine autentica o BDT completo."""
 
-        if build_info.build_id is None:
-            error = SteamDetectionError(build_info, before_game_writes=True)
+        try:
+            compatibility = require_supported_build(game_dir, build_info)
+        except GameFilesCompatibilityError as error:
             self._set_stage(
-                "steam_detection_failed",
-                f"Instalacao Steam nao confirmada [{error.code}]; "
-                "abra Diagnostico para copiar o relatorio.",
-                finished=True,
-            )
-            self._record_error(error)
-            return
-        if build_info.build_id not in SUPPORTED_STEAM_BUILD_IDS:
-            error = UnsupportedBuildError(build_info, before_game_writes=True)
-            self._set_stage(
-                "unsupported_build",
-                f"Versao nao suportada ({build_info.build_id}) [{error.code}]; "
+                "game_files_unsupported",
+                f"Arquivos do jogo nao homologados [{error.code}]; "
                 "abra Diagnostico para copiar o relatorio.",
                 finished=True,
             )
@@ -683,11 +682,17 @@ class PatcherApp(ctk.CTk):
                 finished=True,
             )
             return
-        self._set_stage(
-            "ready",
-            "Jogo compativel detectado; pronto para instalar.",
-            finished=True,
+        ready_message = (
+            "Pre-verificacao dos arquivos concluida; o manifesto informa o BuildID "
+            "esperado, mas nao confirma Steam/online. Pronto para a validacao completa."
+            if build_info.build_id in SUPPORTED_STEAM_BUILD_IDS
+            else (
+                "Pre-verificacao dos arquivos concluida; manifesto opcional e "
+                "Steam/online nao confirmados. Pronto para a validacao completa."
+            )
         )
+        self._set_stage("ready", ready_message, finished=True)
+        self._log(f"Pre-verificacao local concluida: {compatibility}.")
 
     def _build_interface(self) -> None:
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -721,8 +726,8 @@ class PatcherApp(ctk.CTk):
                 )
                 if INSTALLATION_SUSPENDED
                 else (
-                    "✓ ERPT-BR 0.9.5 PARA ELDEN RING 1.17.1\n"
-                    "Pacote plano validado; inicie o jogo normalmente pela Steam."
+                    "✓ ERPT-BR 0.9.6 PARA ELDEN RING 1.17.1\n"
+                    "Pacote validado; os arquivos do jogo serão conferidos antes da instalação."
                 )
             ),
             justify="left",
@@ -904,9 +909,8 @@ class PatcherApp(ctk.CTk):
         self._status(message)
 
     def _record_error(self, exc: BaseException) -> tuple[str, str, str]:
-        if isinstance(exc, (SteamDetectionError, UnsupportedBuildError)):
+        if isinstance(exc, (GameFilesCompatibilityError, ArchiveProfileError)):
             code = exc.code
-            self._record_build_info(exc.build_info)
         elif isinstance(exc, InstallationSuspendedError):
             code = exc.code
         elif isinstance(exc, PermissionError):
@@ -1353,13 +1357,29 @@ class PatcherApp(ctk.CTk):
                 "Transacao interrompida detectada. O backup verificado sera usado para "
                 "concluir esta recuperacao."
             )
-        self._set_stage("steam_build", "Identificando a versao instalada pela Steam...")
+        self._set_stage(
+            "steam_build",
+            "Lendo o registro auxiliar da Steam e validando os arquivos do jogo...",
+        )
         build_info = steam_build_info(
             game_dir,
             game_path_hints=(lexical_game_dir,),
         )
         self._record_build_info(build_info, game_dir)
-        return game_dir, require_supported_build(game_dir, build_info)
+        try:
+            compatibility = require_supported_build(game_dir, build_info)
+        except GameFilesCompatibilityError:
+            if not pending:
+                raise
+            # O journal pode estar justamente no intervalo seguro em que o BDT
+            # ativo foi renomeado para rollback. PatchEngine recupera e autentica
+            # esse nome antes de repetir o perfil; nao use o manifesto como atalho.
+            self._log(
+                "O perfil local sera revalidado depois da recuperacao "
+                "autenticada da transacao interrompida."
+            )
+            compatibility = "recuperacao transacional pendente"
+        return game_dir, compatibility
 
     @staticmethod
     def _precommit_guard(
@@ -1403,9 +1423,10 @@ class PatcherApp(ctk.CTk):
 
     def _install_worker(self, selected_path: str) -> None:
         try:
-            game_dir, build_id = self._validated_context(selected_path)
+            game_dir, compatibility = self._validated_context(selected_path)
             self._log(
-                f"Steam build alvo reconhecido: {build_id} (jogo {SUPPORTED_GAME_VERSION})"
+                f"Pre-verificacao local concluida: {compatibility} "
+                f"(alvo {SUPPORTED_GAME_VERSION})"
             )
 
             if INSTALLATION_SUSPENDED:
@@ -1435,6 +1456,7 @@ class PatcherApp(ctk.CTk):
                 precommit_guard=lambda: self._precommit_guard(
                     game_dir, selected_path
                 ),
+                archive_profile=SUPPORTED_AUDIO_PROFILE,
             )
             self._set_stage(
                 "archive_validation",
@@ -1502,7 +1524,7 @@ class PatcherApp(ctk.CTk):
 
             self._set_stage(
                 "precommit",
-                "Revalidando jogo, EAC e Steam build antes da troca...",
+                "Revalidando arquivos do jogo, EAC e registro Steam antes da troca...",
                 write_state="patch_not_started",
             )
             self._precommit_guard(game_dir, selected_path)
@@ -1531,9 +1553,7 @@ class PatcherApp(ctk.CTk):
             self._ui(
                 lambda: messagebox.showinfo(
                     "Instalacao concluida",
-                    "A dublagem de audio foi aplicada e verificada.\n\n"
-                    "Abra o Elden Ring normalmente pela Steam; este instalador nao "
-                    "substitui nem desativa o Easy Anti-Cheat.",
+                    INSTALLATION_SUCCESS_MESSAGE,
                 )
             )
         except PermissionError as exc:
@@ -1584,8 +1604,11 @@ class PatcherApp(ctk.CTk):
 
     def _restore_worker(self, selected_path: str) -> None:
         try:
-            game_dir, build_id = self._validated_context(selected_path)
-            self._log(f"Restauracao solicitada para o Steam build {build_id}.")
+            game_dir, compatibility = self._validated_context(selected_path)
+            self._log(
+                "Restauracao solicitada apos a pre-verificacao local: "
+                f"{compatibility}."
+            )
             failures: list[str] = []
             audio_restored = False
 
@@ -1595,11 +1618,12 @@ class PatcherApp(ctk.CTk):
                 precommit_guard=lambda: self._precommit_guard(
                     game_dir, selected_path
                 ),
+                archive_profile=SUPPORTED_AUDIO_PROFILE,
             )
             try:
                 self._set_stage(
                     "restore_validation",
-                    "Validando os arquivos e o backup do build atual...",
+                    "Validando os arquivos e o backup do perfil homologado...",
                     write_state="recovery_may_run",
                 )
                 engine.load_archives()

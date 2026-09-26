@@ -3,7 +3,7 @@ name: Release single-package Windows patcher
 on:
   push:
     tags:
-      - "v0.9.5"
+      - "v0.9.6"
 
 permissions: {}
 
@@ -134,7 +134,7 @@ jobs:
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           New-Item -ItemType Directory -Force dist | Out-Null
-          $archive = "dist/ERPT-BR-v0.9.5-Windows.zip"
+          $archive = "dist/ERPT-BR-v0.9.6-Windows.zip"
           python tools/build_source_release.py `
             --version "${{ github.ref_name }}" `
             --wheelhouse wheelhouse `
@@ -154,7 +154,7 @@ jobs:
           }
           & "$env:SystemRoot\py.exe" -3.13 -I -S -c "import sys; raise SystemExit(sys.version_info[:3] != (3,13,15))"
           if ($LASTEXITCODE -ne 0) { throw "py.exe nao resolveu Python 3.13.15" }
-          $archive = "dist/ERPT-BR-v0.9.5-Windows.zip"
+          $archive = "dist/ERPT-BR-v0.9.6-Windows.zip"
           $smokeRoot = Join-Path $env:RUNNER_TEMP "erptbr-source-install-smoke"
           $smokeProfile = Join-Path $env:RUNNER_TEMP "erptbr-source-profile"
           Expand-Archive -LiteralPath $archive -DestinationPath $smokeRoot
@@ -164,16 +164,16 @@ jobs:
           $env:ERPTBR_INSTALL_ONLY = "1"
           & (Join-Path $packageRoot.FullName "ERPT-BR.cmd")
           if ($LASTEXITCODE -ne 0) { throw "Smoke test real de ERPT-BR.cmd falhou" }
-          $venvPython = Join-Path $smokeProfile "ERPT-BR\venv-0.9.5\Scripts\python.exe"
-          $venvSite = Join-Path $smokeProfile "ERPT-BR\venv-0.9.5\Lib\site-packages"
+          $venvPython = Join-Path $smokeProfile "ERPT-BR\venv-0.9.6\Scripts\python.exe"
+          $venvSite = Join-Path $smokeProfile "ERPT-BR\venv-0.9.6\Lib\site-packages"
           $sourceRoot = $packageRoot.FullName
           & $venvPython -I -S -c "import struct,sys,sysconfig; sys.path.extend((sys.argv[1],sys.argv[2])); import patcher.patcher_gui,tkinter,customtkinter; from Crypto.Cipher import AES; raise SystemExit(0 if sys.version_info[:3] == (3,13,15) and struct.calcsize('P') == 8 and sysconfig.get_platform().lower() == 'win-amd64' else 1)" $sourceRoot $venvSite
           if ($LASTEXITCODE -ne 0) { throw "Smoke test isolado do ambiente instalado falhou" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: erpt-br-v0.9.5-windows
-          path: dist/ERPT-BR-v0.9.5-Windows.zip
+          name: erpt-br-v0.9.6-windows
+          path: dist/ERPT-BR-v0.9.6-Windows.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -192,22 +192,22 @@ jobs:
 
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: erpt-br-v0.9.5-windows
+          name: erpt-br-v0.9.6-windows
           path: dist
 
       - name: Attest immutable artifacts
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
-          subject-path: dist/ERPT-BR-v0.9.5-Windows.zip
+          subject-path: dist/ERPT-BR-v0.9.6-Windows.zip
 
       - name: Publish new GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          archive="dist/ERPT-BR-v0.9.5-Windows.zip"
-          notes="docs/RELEASE-0.9.5.md"
-          tag="v0.9.5"
-          title="ERPT-BR v0.9.5 — Pacote plano para Windows"
+          archive="dist/ERPT-BR-v0.9.6-Windows.zip"
+          notes="docs/RELEASE-0.9.6.md"
+          tag="v0.9.6"
+          title="ERPT-BR v0.9.6 — Compatibilidade sem manifesto obrigatório"
           test -f "$archive"
           test -f "$notes"
           local_size="$(wc -c < "$archive" | tr -d '[:space:]')"
@@ -223,8 +223,8 @@ jobs:
           gh api "repos/${{ github.repository }}/releases?per_page=100" > "$releases"
           existing_count="$(jq --arg tag "$tag" '[.[] | select(.tag_name == $tag)] | length' "$releases")"
           if [ "$existing_count" = "0" ]; then
-            create_request="$RUNNER_TEMP/erptbr-v095-create.json"
-            create_response="$RUNNER_TEMP/erptbr-v095-release.json"
+            create_request="$RUNNER_TEMP/erptbr-v096-create.json"
+            create_response="$RUNNER_TEMP/erptbr-v096-release.json"
             jq -n \
               --arg tag "$tag" \
               --arg title "$title" \
@@ -261,7 +261,7 @@ jobs:
           # application/octet-stream. O endpoint de assets aceita o MIME
           # explicito, e a release permanece em rascunho se qualquer
           # verificacao abaixo falhar.
-          assets="$RUNNER_TEMP/erptbr-v095-assets.json"
+          assets="$RUNNER_TEMP/erptbr-v096-assets.json"
           gh api "repos/${{ github.repository }}/releases/${release_id}/assets" > "$assets"
           asset_count="$(jq 'length' "$assets")"
           if [ "$asset_count" = "1" ] && [ "$(jq -r '.[0].state' "$assets")" = "starter" ]; then
@@ -274,7 +274,7 @@ jobs:
           fi
           if [ "$asset_count" = "0" ]; then
             test "$release_was_draft" = "true"
-            response="$RUNNER_TEMP/erptbr-v095-upload.json"
+            response="$RUNNER_TEMP/erptbr-v096-upload.json"
             curl --fail-with-body --silent --show-error --location \
               --request POST \
               --header "Authorization: Bearer $GH_TOKEN" \
@@ -283,7 +283,7 @@ jobs:
               --header "Content-Type: application/zip" \
               --data-binary "@$archive" \
               --output "$response" \
-              "${upload_url}?name=ERPT-BR-v0.9.5-Windows.zip"
+              "${upload_url}?name=ERPT-BR-v0.9.6-Windows.zip"
             gh api "repos/${{ github.repository }}/releases/${release_id}/assets" > "$assets"
             asset_count="$(jq 'length' "$assets")"
           fi
@@ -294,14 +294,14 @@ jobs:
           asset_digest="$(jq -r '.[0].digest' "$assets")"
           asset_state="$(jq -r '.[0].state' "$assets")"
           test "$asset_count" = "1"
-          test "$asset_name" = "ERPT-BR-v0.9.5-Windows.zip"
+          test "$asset_name" = "ERPT-BR-v0.9.6-Windows.zip"
           test "$asset_type" = "application/zip"
           test "$asset_size" = "$local_size"
           test "$asset_digest" = "$local_digest"
           test "$asset_state" = "uploaded"
 
-          publish_request="$RUNNER_TEMP/erptbr-v095-publish.json"
-          publish_response="$RUNNER_TEMP/erptbr-v095-published.json"
+          publish_request="$RUNNER_TEMP/erptbr-v096-publish.json"
+          publish_response="$RUNNER_TEMP/erptbr-v096-published.json"
           jq -n '{draft:false, make_latest:"true"}' > "$publish_request"
           gh api --method PATCH \
             "repos/${{ github.repository }}/releases/${release_id}" \

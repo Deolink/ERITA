@@ -4,7 +4,7 @@
 
 - O projeto não publica executável próprio.
 - O único download destinado ao usuário é
-  `ERPT-BR-v0.9.5-Windows.zip`. Ele contém o código-fonte do patcher, scripts
+  `ERPT-BR-v0.9.6-Windows.zip`. Ele contém o código-fonte do patcher, scripts
   `.cmd` transparentes, dependências travadas e o payload de áudio autenticado.
 - Os ZIPs automáticos **Source code** do GitHub não são instaladores e não
   contêm o pacote completo.
@@ -29,7 +29,7 @@
 O payload foi reconstruído sobre os bancos originais do Elden Ring 1.17.1,
 Steam BuildID `25080141`. O patcher valida antes do uso:
 
-- formato distribuído na 0.9.5: pasta plana `patch_data`, sem arquivo compactado
+- formato distribuído desde a 0.9.5: pasta plana `patch_data`, sem arquivo compactado
   de áudio aninhado;
 - SHA-256 canônico da árvore:
   `8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb`;
@@ -46,13 +46,32 @@ O arquivo de origem usado para montar essa árvore permanece fixado em
 Ele é apenas uma entrada autenticada do workflow e não é colocado dentro do ZIP
 entregue ao usuário.
 
+## Compatibilidade dos arquivos do jogo
+
+O `appmanifest` da Steam não é uma autoridade de segurança e nunca autoriza ou
+bloqueia sozinho uma instalação. O patcher usa os arquivos reais como
+autoridade:
+
+- exige os índices BHD e os pares BDT do perfil homologado;
+- confere o SHA-256 dos BHDs e os tamanhos esperados dos BDTs na verificação
+  rápida;
+- antes da primeira gravação, confere o SHA-256 completo dos BDTs vanilla;
+- em reinstalações e restaurações, aceita somente um baseline original
+  previamente autenticado e o resultado registrado pelo próprio ERPT-BR.
+
+Manifesto ausente, ilegível ou copiado não substitui nem invalida um perfil
+local reconhecido. Nesses casos, a instalação da dublagem pode continuar, mas a
+Steam e o modo online permanecem explicitamente não confirmados. Copiar um
+manifesto externo não contorna nenhuma verificação dos arquivos reais.
+
 ## Easy Anti-Cheat e modo online
 
 O patcher não usa Mod Engine 3, não inicia Elden Ring, não injeta bibliotecas,
-não altera o Easy Anti-Cheat e não muda a forma de iniciar o jogo pela Steam. A
-correção de áudio usada pela 0.9.5 foi validada em uma sessão real da 0.9.4 com
-EAC e conexão online ativos. A 0.9.5 altera somente a forma de distribuição do
-mesmo payload autenticado.
+não altera o Easy Anti-Cheat e não muda a forma de iniciar o jogo pela Steam. O
+payload usado pela 0.9.6 foi validado em uma sessão real da 0.9.4 com EAC e
+conexão online ativos. A 0.9.5 alterou somente sua forma de distribuição; a
+0.9.6 altera somente a autoridade usada para reconhecer a compatibilidade,
+mantendo o mesmo payload autenticado.
 
 Os dados modificados nos BDTs não são acompanhados de regravação ou reassinatura
 dos índices BHD. Consequentemente, 8.973 recursos deixam de corresponder aos
@@ -63,7 +82,9 @@ transforma essa limitação em garantia de compatibilidade ou de ausência de ri
 
 Um teste bem-sucedido não equivale a garantia permanente de risco zero. Uma
 atualização do jogo, do EAC ou das regras do serviço pode mudar o resultado. O
-suporte é limitado ao jogo e BuildID declarados no release.
+suporte é limitado ao perfil real dos arquivos e ao payload declarados no
+release. O BuildID Steam, quando disponível, funciona como informação auxiliar
+e não como prova do conteúdo instalado.
 
 ## Integridade do release
 
@@ -72,7 +93,7 @@ GitHub registra o digest SHA-256 do asset e gera um atestado de proveniência pe
 GitHub Actions. Para verificar o pacote com a CLI do GitHub:
 
 ```text
-gh attestation verify ERPT-BR-v0.9.5-Windows.zip --repo lorepamplona/ERPT-BR
+gh attestation verify ERPT-BR-v0.9.6-Windows.zip --repo lorepamplona/ERPT-BR
 ```
 
 O workflow usa dependências travadas por SHA de commit e não deve sobrescrever
@@ -88,8 +109,10 @@ acessar WinGet ou `python.org` para instalar o Python oficial.
 Os botões **Detalhes** e **Abrir chamado** só pedem ao navegador padrão que abra
 o GitHub depois de um clique explícito. O diagnóstico é processado localmente,
 usa uma lista fechada de campos e remove padrões conhecidos de caminhos,
-identidades, e-mails, SteamID e segredos. Ele não abre, enumera nem calcula hash
-dos arquivos do jogo. O usuário deve revisar e enviar o conteúdo manualmente.
+identidades, e-mails, SteamID e segredos. A geração do relatório não inicia uma
+nova leitura dos arquivos do jogo nem inclui seus hashes; as verificações de
+compatibilidade da operação são separadas. O usuário deve revisar e enviar o
+conteúdo manualmente.
 
 Backups, ambientes isolados e cache ficam no perfil local. Árvores abandonadas
 ou transações interrompidas são preservadas e reportadas; o programa não tenta
