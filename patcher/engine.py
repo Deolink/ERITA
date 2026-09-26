@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import bisect
 import copy
+import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -16,6 +18,7 @@ import re
 import shutil
 import stat
 import struct
+import sys
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -153,6 +156,86 @@ def _read_regular_file_limited(
 
 def _absolute_without_resolving(path: str | os.PathLike[str]) -> Path:
     return Path(os.path.abspath(os.fspath(path)))
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _path_identity_text(path: str | os.PathLike[str]) -> str:
+    """Return a stable path key without merging case-distinct POSIX paths."""
+
+    value = os.fspath(path)
+    return value.casefold() if _is_windows() else value
+
+
+def _linux_rename_noreplace(source: Path, destination: Path) -> None:
+    """Call Linux ``renameat2(RENAME_NOREPLACE)`` or fail before mutation."""
+
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = libc.renameat2
+    except (AttributeError, OSError) as exc:
+        raise OSError(
+            errno.ENOTSUP,
+            "renameat2(RENAME_NOREPLACE) nao esta disponivel neste Linux",
+            str(destination),
+        ) from exc
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    result = renameat2(
+        -100,  # AT_FDCWD
+        os.fsencode(source),
+        -100,  # AT_FDCWD
+        os.fsencode(destination),
+        1,  # RENAME_NOREPLACE
+    )
+    if result != 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(
+            error_number,
+            os.strerror(error_number),
+            str(destination),
+        )
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist directory metadata on POSIX; Windows has different semantics."""
+
+    if _is_windows():
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _rename_noreplace(source: Path, destination: Path) -> None:
+    """Atomically rename without replacing a racing destination."""
+
+    source = _absolute_without_resolving(source)
+    destination = _absolute_without_resolving(destination)
+    if _is_windows():
+        os.rename(source, destination)
+    elif sys.platform.startswith("linux"):
+        _linux_rename_noreplace(source, destination)
+    else:
+        raise OSError(
+            errno.ENOTSUP,
+            f"rename atomico sem substituicao nao suportado em {sys.platform}",
+            str(destination),
+        )
+    for parent in dict.fromkeys((source.parent, destination.parent)):
+        _fsync_directory(parent)
 
 
 def _ensure_safe_directory_tree(
@@ -2025,21 +2108,16 @@ def _authenticated_regular_if_file(
 def _publish_without_replace(source: Path, destination: Path) -> None:
     """Publish ``source`` atomically while refusing to clobber ``destination``.
 
-    Both paths are deliberately created in the same game directory.  On Windows,
-    ``os.rename`` is atomic and refuses an existing destination, and unlike a
-    hardlink it also works on supported non-NTFS Steam volumes.  The POSIX test
-    fallback uses link/create-if-absent followed by unlink.
+    Both paths are deliberately created in the same game directory. Windows
+    ``os.rename`` and Linux ``renameat2(RENAME_NOREPLACE)`` both perform one
+    atomic move and refuse a destination created by another process.
     """
-    if destination.exists():
+    if os.path.lexists(destination):
         raise BackupError(
             f"{destination.name} reapareceu durante a troca; o arquivo externo foi preservado."
         )
     try:
-        if os.name == "nt":
-            os.rename(source, destination)
-        else:  # pragma: no cover - the public release targets Windows
-            os.link(source, destination)
-            source.unlink()
+        _rename_noreplace(source, destination)
     except FileExistsError as exc:
         raise BackupError(
             f"{destination.name} reapareceu durante a troca; o arquivo externo foi preservado."
@@ -2081,9 +2159,7 @@ def _rename_directory_without_replace(source: Path, destination: Path) -> None:
             f"A pasta {destination.name} reapareceu; o conteudo externo foi preservado."
         )
     try:
-        # The supported Windows runtime refuses an existing destination.  The
-        # pre-check is also useful for cooperative non-Windows test runs.
-        os.rename(source, destination)
+        _rename_noreplace(source, destination)
     except FileExistsError as exc:
         raise BackupError(
             f"A pasta {destination.name} reapareceu; o conteudo externo foi preservado."
@@ -2122,6 +2198,7 @@ def _atomic_json(path: Path, value: dict) -> None:
         if (metadata.st_dev, metadata.st_ino) != owned_identity:
             raise BackupError(f"Manifesto temporario foi trocado: '{temp_path}'.")
         os.replace(temp_path, path)
+        _fsync_directory(path.parent)
     except FileExistsError as exc:
         raise BackupError(
             f"O scratch do manifesto ja existe e foi preservado: '{temp_path}'."
@@ -2134,10 +2211,18 @@ def _atomic_json(path: Path, value: dict) -> None:
 
 
 def _default_backup_root() -> Path:
-    local_data = os.environ.get("LOCALAPPDATA")
-    if local_data:
-        return Path(local_data) / "ERPT-BR" / "backups"
-    return Path.home() / ".local" / "share" / "ERPT-BR" / "backups"
+    if _is_windows():
+        local_data = os.environ.get("LOCALAPPDATA")
+        root = Path(local_data) if local_data else Path.home() / "AppData" / "Local"
+    else:
+        configured = os.environ.get("XDG_STATE_HOME")
+        candidate = Path(configured).expanduser() if configured else None
+        root = (
+            candidate
+            if candidate is not None and candidate.is_absolute()
+            else Path.home() / ".local" / "state"
+        )
+    return root / "ERPT-BR" / "backups"
 
 
 def _iter_backup_manifest_paths(backup_root: Path) -> tuple[Path, ...]:
@@ -2265,7 +2350,7 @@ class BackupManager:
                 "Hashes vanilla esperados nao cobrem exatamente os archives."
             )
         self.game_id = hashlib.sha256(
-            str(self.game_dir).casefold().encode("utf-8")
+            _path_identity_text(self.game_dir).encode("utf-8")
         ).hexdigest()[:16]
         fingerprint_source = [
             {
@@ -3061,7 +3146,7 @@ class BackupManager:
                     raise ValueError("game path")
                 saved_game_path = Path(saved_game).resolve()
                 calculated_game_id = hashlib.sha256(
-                    str(saved_game_path).casefold().encode("utf-8")
+                    _path_identity_text(saved_game_path).encode("utf-8")
                 ).hexdigest()[:16]
                 if (
                     value.get("schema") != BACKUP_SCHEMA
@@ -3692,7 +3777,7 @@ class PatchEngine:
             create=False,
         )
         game_id = hashlib.sha256(
-            str(self.game_dir).casefold().encode("utf-8")
+            _path_identity_text(self.game_dir).encode("utf-8")
         ).hexdigest()[:16]
         game_root = backup_root / game_id
         if not game_root.is_dir():

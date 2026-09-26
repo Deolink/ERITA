@@ -3,30 +3,31 @@
 Projeto de dublagem em Português Brasileiro para Elden Ring no PC.
 
 > [!IMPORTANT]
-> A versão **0.9.6** instala a dublagem no Elden Ring **1.17.1**
+> A versão **0.9.7** instala a dublagem no Elden Ring **1.17.1**
 > (Steam BuildID `25080141`). Os bancos de áudio foram reconstruídos sobre os
 > bancos originais dessa versão para preservar sons adicionados pelo jogo,
 > inclusive os cliques da interface que desapareciam nas versões 0.9.1 e 0.9.2.
-> A 0.9.6 mantém exatamente esse áudio corrigido, distribuído em pacote plano
-> desde a 0.9.5, e deixa de exigir o `appmanifest` da Steam para reconhecer os
-> arquivos compatíveis.
+> A 0.9.7 mantém exatamente esse áudio corrigido e a regra da 0.9.6 que torna o
+> `appmanifest` da Steam opcional. Esta versão também adiciona um pacote portátil
+> inicial para Linux x86_64 e Steam Deck no Modo Desktop.
 
 ## Download correto
 
-Na página [Releases](https://github.com/lorepamplona/ERPT-BR/releases), baixe
-somente:
+Na página [Releases](https://github.com/lorepamplona/ERPT-BR/releases), baixe o
+pacote correspondente ao seu sistema:
 
-`ERPT-BR-v0.9.6-Windows.zip`
+- Windows x64: `ERPT-BR-v0.9.7-Windows.zip`;
+- Linux x86_64/Steam Deck: `ERPT-BR-v0.9.7-Linux-x86_64.tar.gz`.
 
-Esse é o pacote completo para o usuário: instalador em código-fonte,
-dependências verificadas e payload de áudio. Não baixe os ZIPs automáticos
+Os dois são pacotes completos para o usuário: instalador em código-fonte,
+dependências verificadas e payload de áudio. Não baixe os arquivos automáticos
 **Source code** do GitHub e não tente executar separadamente arquivos internos
 do payload.
 
 ## Instalação no Windows
 
 1. Feche Elden Ring e Easy Anti-Cheat.
-2. Extraia **todo** o conteúdo de `ERPT-BR-v0.9.6-Windows.zip` para uma pasta
+2. Extraia **todo** o conteúdo de `ERPT-BR-v0.9.7-Windows.zip` para uma pasta
    normal.
 3. Dê dois cliques em `ERPT-BR.cmd`.
 4. Confirme a pasta `ELDEN RING\Game` detectada pela Steam ou selecione-a.
@@ -44,13 +45,41 @@ Não execute o patcher como administrador. Se o Windows negar gravação, feche 
 jogo e o EAC e use uma biblioteca Steam gravável pela sua conta ou ajuste
 somente a permissão da pasta do jogo.
 
+## Instalação no Linux e Steam Deck
+
+O suporte da 0.9.7 é inicial e destinado a **Linux x86_64**. No Steam Deck, use
+o **Modo Desktop**.
+
+1. Feche Elden Ring e Easy Anti-Cheat.
+2. Extraia todo o conteúdo de `ERPT-BR-v0.9.7-Linux-x86_64.tar.gz` para uma
+   pasta em uma unidade Linux `ext4`.
+3. Execute `ERPT-BR.sh` pelo gerenciador de arquivos ou, em um terminal aberto
+   na pasta extraída, use `./ERPT-BR.sh`.
+4. Confirme a pasta `ELDEN RING/Game` detectada ou selecione-a manualmente.
+5. Clique em **Instalar dublagem** e aguarde a confirmação final.
+6. Abra o jogo normalmente pela mesma instalação da Steam.
+
+O detector procura instalações da Steam nativa, Flatpak e Snap e também segue
+as bibliotecas registradas em `libraryfolders.vdf`. O pacote inclui o runtime
+portátil Astral `python-build-standalone` 20260924 com CPython 3.13.15 e todas
+as dependências travadas. Portanto, a primeira execução não exige Python do
+sistema, `sudo` nem acesso à rede. **Não execute como root.**
+
+Esta primeira versão Linux precisa concluir a validação no CI e testes em
+hardware real antes de receber promessa de funcionamento online. O suporte
+inicial de sistema de arquivos é `ext4`; instalações do jogo ou do patcher em
+NTFS, exFAT ou btrfs ainda não são prometidas sem testes específicos.
+
 ## Modo online
 
-O payload de áudio mantido pela 0.9.6 foi testado em uma sessão real na 0.9.4,
-iniciada normalmente pela Steam, com Easy Anti-Cheat e conexão online ativos. O
-teste concluiu com sucesso e os sons de clique permaneceram funcionando. As
-versões 0.9.5 e 0.9.6 não alteram esse áudio. O patcher não desativa nem modifica
-o EAC, não injeta DLL e não muda a forma de iniciar o jogo.
+O payload de áudio mantido pela 0.9.7 foi testado no Windows em uma sessão real
+na 0.9.4, iniciada normalmente pela Steam, com Easy Anti-Cheat e conexão online
+ativos. O teste concluiu com sucesso e os sons de clique permaneceram
+funcionando. As versões 0.9.5, 0.9.6 e 0.9.7 não alteram esse áudio. O patcher
+não desativa nem modifica o EAC, não injeta bibliotecas e não muda a forma de
+iniciar o jogo. Esse teste não valida automaticamente o novo ambiente
+Linux/Proton; nele, o modo online continua sem promessa até haver teste físico
+reproduzível.
 
 O método direto altera dados dentro dos BDTs, mas não regrava nem reassina os
 índices BHD. Assim, 8.973 recursos modificados não correspondem mais aos hashes
@@ -68,6 +97,17 @@ Reconhecer o perfil local dos arquivos sem um manifesto válido confirma a
 compatibilidade do áudio, mas não confirma que a instalação esteja registrada
 na Steam nem que o modo online esteja disponível naquele ambiente. A ausência
 do manifesto, por si só, **não bloqueia a instalação da dublagem**.
+
+## O que mudou na 0.9.7
+
+- novo pacote portátil para Linux x86_64 e Steam Deck no Modo Desktop;
+- detecção da Steam nativa, Flatpak e Snap, incluindo bibliotecas adicionais
+  registradas em `libraryfolders.vdf`;
+- runtime Astral `python-build-standalone` 20260924 com CPython 3.13.15 fixado;
+- dependências Linux incluídas e instaladas localmente em modo offline;
+- nenhuma exigência de Python do sistema, `sudo` ou rede na primeira execução;
+- mesmas validações do perfil real 1.17.1 e o mesmo payload autenticado da
+  0.9.6.
 
 ## O que mudou na 0.9.6
 
@@ -110,13 +150,13 @@ Essas versões substituíam bancos atuais por bancos antigos e podiam remover
 cliques do menu e sons de cutscenes. A versão 0.8.4 usa o mesmo payload antigo e
 não é um fallback seguro.
 
-Antes de instalar a 0.9.6:
+Antes de instalar a 0.9.7:
 
 1. Abra o pacote atual e use **Corrigir áudio (restaurar)** se existir um backup
    transacional válido.
 2. Se a restauração não estiver disponível ou falhar, use **Steam > Elden Ring >
    Propriedades > Arquivos instalados > Verificar integridade**.
-3. Confirme o áudio original e então instale a 0.9.6.
+3. Confirme o áudio original e então instale a 0.9.7.
 
 Consulte também a [migração do executável antigo](MIGRACAO.md) e o
 [relatório do incidente](docs/INCIDENTE-0.9.1.md).
@@ -156,15 +196,17 @@ o envio continua manual e a issue será pública.
 
 ## Backup, restauração e atualizações
 
-O backup fica em `%LOCALAPPDATA%\ERPT-BR\backups` e é vinculado à instalação
-selecionada e ao perfil real dos arquivos de áudio. O patcher autentica os BHDs,
-os tamanhos dos BDTs e o SHA-256 completo dos BDTs originais, prepara cópias
-temporárias, registra um journal transacional e relê o resultado antes de
-anunciar sucesso. Um backup fora desse perfil nunca é restaurado sobre o jogo
-atual.
+O backup fica em `%LOCALAPPDATA%\ERPT-BR\backups` no Windows. No Linux, fica em
+`$XDG_STATE_HOME/ERPT-BR/backups` quando essa variável está definida, ou em
+`~/.local/state/ERPT-BR/backups` por padrão. Ele é vinculado à instalação
+selecionada e ao perfil real dos arquivos de áudio. O patcher
+autentica os BHDs, os tamanhos dos BDTs e o SHA-256 completo dos BDTs originais,
+prepara cópias temporárias, registra um journal transacional e relê o resultado
+antes de anunciar sucesso. Um backup fora desse perfil nunca é restaurado sobre
+o jogo atual.
 
 Restaure o áudio original antes de mover ou renomear a biblioteca Steam. Use a
-mesma conta do Windows para instalar e restaurar. Em caso de atualização do
+mesma conta do sistema para instalar e restaurar. Em caso de atualização do
 jogo, faça a verificação de integridade da Steam e aguarde uma versão do ERPT-BR
 que reconheça o novo perfil real dos arquivos.
 
@@ -174,7 +216,11 @@ junction.
 
 ## Limites atuais
 
-- Windows x64 e versão Steam do Elden Ring;
+- Windows x64;
+- suporte inicial a Linux x86_64 e Steam Deck no Modo Desktop, com Steam
+  nativa, Flatpak ou Snap;
+- `ext4` é o sistema de arquivos Linux inicialmente suportado; NTFS, exFAT e
+  btrfs ainda precisam de validação específica;
 - Elden Ring 1.17.1, com BuildID Steam auxiliar correspondente `25080141`;
 - áudio WEM/BNK; o pacote opcional antigo de cutscenes `.bk2` continua recusado
   por não possuir manifesto criptográfico público;
@@ -186,6 +232,10 @@ junction.
 python -m pip install --require-hashes --only-binary=:all: -r patcher/requirements-win64.lock
 python -m unittest discover -s tests -v
 ```
+
+O pacote Linux usa `patcher/requirements-linux-x86_64.lock` e o runtime
+portátil fixado; o pacote de release é testado separadamente no CI antes da
+publicação.
 
 O CI rejeita launcher dinâmico, `exec(compile(...))`, `taskkill` e builds
 PyInstaller/Nuitka. Releases são montados por lista permitida, com SHA-256 e

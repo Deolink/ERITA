@@ -20,7 +20,7 @@ if (
     _legacy_messagebox.showwarning(
         "ERPT-BR - migracao necessaria",
         "Este executavel foi descontinuado por seguranca e nao aplicara o patch.\n\n"
-        "Baixe o pacote 'ERPT-BR-v0.9.6-Windows.zip' na pagina Releases do projeto, "
+        "Baixe o pacote ERPT-BR mais recente para o seu sistema na pagina Releases, "
         "extraia-o e execute ERPT-BR.cmd.\n\n"
         "Se uma versao antiga da dublagem ja foi instalada, primeiro use "
         "Steam > Elden Ring > Propriedades > Arquivos instalados > "
@@ -92,7 +92,7 @@ except ImportError:  # pragma: no cover - caminho usado pelo script interno
     from diagnostics import build_diagnostic_report
 
 
-PATCHER_VERSION = "0.9.6"
+PATCHER_VERSION = "0.9.7"
 SUPPORTED_GAME_VERSION = "1.17.1"
 SUPPORTED_STEAM_BUILD_IDS = frozenset({"25080141"})
 SUPPORTED_AUDIO_PROFILE = GameArchiveProfile(
@@ -122,7 +122,7 @@ SUPPORTED_AUDIO_PROFILE = GameArchiveProfile(
 )
 STEAM_APP_ID = "1245620"
 PROJECT_URL = "https://github.com/lorepamplona/ERPT-BR"
-DETAILS_URL = f"{PROJECT_URL}/releases/tag/v0.9.6"
+DETAILS_URL = f"{PROJECT_URL}/releases/tag/v0.9.7"
 # Chave de emergência: pode ser reativada sem remover o fluxo de restauração.
 INSTALLATION_SUSPENDED = False
 COMPATIBILITY_ISSUE_URL = (
@@ -145,6 +145,8 @@ GOLD = "#c8aa6e"
 GOLD_HOVER = "#e0c478"
 TEXT = "#f0e6d2"
 MUTED = "#aaa394"
+UI_FONT = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
+MONO_FONT = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
 
 BLOCKING_EXECUTABLES = {
     "eldenring.exe": "Elden Ring",
@@ -233,20 +235,53 @@ def _steam_roots() -> list[Path]:
             (Path(r"C:\Program Files (x86)\Steam"), Path(r"C:\Program Files\Steam"))
         )
     else:
+        for variable in ("STEAM_COMPAT_CLIENT_INSTALL_PATH", "STEAM_HOME"):
+            configured = os.environ.get(variable)
+            if configured:
+                configured_root = Path(configured).expanduser()
+                if configured_root.is_absolute():
+                    roots.append(configured_root)
+        xdg_data = os.environ.get("XDG_DATA_HOME")
+        if xdg_data:
+            xdg_root = Path(xdg_data).expanduser()
+            if xdg_root.is_absolute():
+                roots.append(xdg_root / "Steam")
         roots.extend(
             (
                 Path.home() / ".steam" / "steam",
+                Path.home() / ".steam" / "root",
                 Path.home() / ".local" / "share" / "Steam",
+                Path.home()
+                / ".var"
+                / "app"
+                / "com.valvesoftware.Steam"
+                / ".local"
+                / "share"
+                / "Steam",
+                Path.home()
+                / "snap"
+                / "steam"
+                / "common"
+                / ".local"
+                / "share"
+                / "Steam",
             )
         )
     unique: list[Path] = []
     seen: set[str] = set()
     for root in roots:
-        key = str(root).casefold()
+        key = _path_key(root)
         if key not in seen:
             unique.append(root)
             seen.add(key)
     return unique
+
+
+def _path_key(path: str | Path) -> str:
+    """Deduplica caminhos sem colapsar caixa em filesystems POSIX."""
+
+    value = os.path.abspath(os.fspath(path))
+    return value.casefold() if sys.platform == "win32" else value
 
 
 def _steam_libraries(root: Path) -> list[Path]:
@@ -257,8 +292,18 @@ def _steam_libraries(root: Path) -> list[Path]:
     except OSError:
         return libraries
     for value in re.findall(r'"path"\s+"([^"]+)"', content):
-        libraries.append(Path(value.replace("\\\\", "\\")))
-    return libraries
+        normalized = value.replace("\\\\", "\\") if sys.platform == "win32" else value
+        candidate = Path(normalized).expanduser()
+        if candidate.is_absolute():
+            libraries.append(candidate)
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for library in libraries:
+        key = _path_key(library)
+        if key not in seen:
+            unique.append(library)
+            seen.add(key)
+    return unique
 
 
 def find_elden_ring() -> Path | None:
@@ -312,7 +357,7 @@ def _direct_manifest_paths(
         except IndexError:
             continue
         manifest = steamapps / f"appmanifest_{STEAM_APP_ID}.acf"
-        key = str(manifest.absolute()).casefold()
+        key = _path_key(manifest)
         if key not in seen:
             paths.append(manifest)
             seen.add(key)
@@ -359,7 +404,7 @@ def steam_build_info(
     # oficial de bibliotecas da Steam. So aceite quando a pasta registrada e a
     # pasta selecionada forem a mesma identidade no sistema de arquivos.
     seen_manifests = {
-        str(path.absolute()).casefold() for path in direct_manifests
+        _path_key(path) for path in direct_manifests
     }
     fallback_failures: list[str] = []
     for steam_root in _steam_roots():
@@ -367,7 +412,7 @@ def steam_build_info(
             manifest_path = (
                 library / "steamapps" / f"appmanifest_{STEAM_APP_ID}.acf"
             )
-            key = str(manifest_path.absolute()).casefold()
+            key = _path_key(manifest_path)
             if key in seen_manifests:
                 continue
             seen_manifests.add(key)
@@ -438,8 +483,13 @@ def require_supported_build(
 
 def running_blockers() -> list[str]:
     """Detecta processos; nunca os encerra automaticamente."""
+    if sys.platform.startswith("linux"):
+        return _linux_running_blockers()
     if sys.platform != "win32":
-        return []
+        raise PatcherError(
+            f"O sistema {sys.platform!r} ainda nao possui verificacao segura de "
+            "processos. Nenhum arquivo sera alterado."
+        )
     system_root = os.environ.get("SystemRoot")
     tasklist = Path(system_root, "System32", "tasklist.exe") if system_root else None
     if tasklist is None or not tasklist.is_file():
@@ -475,6 +525,101 @@ def running_blockers() -> list[str]:
         for executable, label in BLOCKING_EXECUTABLES.items()
         if executable in names
     ]
+
+
+def _linux_process_name(value: bytes | str) -> str:
+    if isinstance(value, bytes):
+        value = os.fsdecode(value)
+    value = value.strip().strip('"')
+    if not value:
+        return ""
+    return re.split(r"[\\/]", value)[-1].casefold()
+
+
+def _linux_running_blockers(proc_root: Path = Path("/proc")) -> list[str]:
+    """Inspeciona processos do usuario no Linux/Proton e falha fechado."""
+
+    try:
+        current_uid = os.getuid()
+        entries = list(proc_root.iterdir())
+    except (AttributeError, OSError) as exc:
+        raise PatcherError(
+            "Nao foi possivel consultar /proc para confirmar que Elden Ring e "
+            "Easy Anti-Cheat estao fechados. Nenhum arquivo sera alterado."
+        ) from exc
+
+    inspected = 0
+    names: set[str] = set()
+    for process_dir in entries:
+        if not process_dir.name.isdecimal():
+            continue
+        try:
+            if process_dir.stat().st_uid != current_uid:
+                continue
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise PatcherError(
+                "Nao foi possivel confirmar a identidade de um processo em /proc. "
+                "Nenhum arquivo sera alterado."
+            ) from exc
+        inspected += 1
+
+        try:
+            comm = (process_dir / "comm").read_bytes()[:4096]
+            name = _linux_process_name(comm)
+            if name:
+                names.add(name)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise PatcherError(
+                "Nao foi possivel ler os processos do usuario em /proc. "
+                "Nenhum arquivo sera alterado."
+            ) from exc
+
+        try:
+            with (process_dir / "cmdline").open("rb") as stream:
+                command_line = stream.read(64 * 1024 + 1)
+            if len(command_line) > 64 * 1024:
+                raise PatcherError(
+                    "Uma linha de comando em /proc excedeu o limite seguro. "
+                    "Nenhum arquivo sera alterado."
+                )
+            for argument in command_line.split(b"\0"):
+                name = _linux_process_name(argument)
+                if name:
+                    names.add(name)
+        except FileNotFoundError:
+            continue
+        except PermissionError as exc:
+            raise PatcherError(
+                "O Linux negou a leitura dos processos do usuario. Nenhum arquivo "
+                "sera alterado."
+            ) from exc
+        except OSError as exc:
+            raise PatcherError(
+                "Falha ao consultar os processos do usuario no Linux. Nenhum "
+                "arquivo sera alterado."
+            ) from exc
+
+    if inspected == 0:
+        raise PatcherError(
+            "Nenhum processo do usuario pode ser confirmado em /proc. Nenhum "
+            "arquivo sera alterado."
+        )
+
+    blockers = [
+        label
+        for executable, label in BLOCKING_EXECUTABLES.items()
+        if executable in names
+    ]
+    if any(
+        name.startswith("easyanticheat") and name.endswith(".exe")
+        for name in names
+    ) and not any("Anti-Cheat" in label for label in blockers):
+        blockers.append("Easy Anti-Cheat")
+    return list(dict.fromkeys(blockers))
 
 
 def optional_movie_payload_present(root: Path) -> bool:
@@ -700,13 +845,13 @@ class PatcherApp(ctk.CTk):
         ctk.CTkLabel(
             header,
             text="ELDEN RING  •  DUBLAGEM PT-BR",
-            font=ctk.CTkFont("Segoe UI", 24, "bold"),
+            font=ctk.CTkFont(UI_FONT, 24, "bold"),
             text_color=GOLD,
         ).pack(anchor="w")
         ctk.CTkLabel(
             header,
             textvariable=self.build_var,
-            font=ctk.CTkFont("Segoe UI", 12),
+            font=ctk.CTkFont(UI_FONT, 12),
             text_color=MUTED,
         ).pack(anchor="w", pady=(4, 0))
 
@@ -726,13 +871,13 @@ class PatcherApp(ctk.CTk):
                 )
                 if INSTALLATION_SUSPENDED
                 else (
-                    "✓ ERPT-BR 0.9.6 PARA ELDEN RING 1.17.1\n"
+                    "✓ ERPT-BR 0.9.7 PARA ELDEN RING 1.17.1\n"
                     "Pacote validado; os arquivos do jogo serão conferidos antes da instalação."
                 )
             ),
             justify="left",
             anchor="w",
-            font=ctk.CTkFont("Segoe UI", 12),
+            font=ctk.CTkFont(UI_FONT, 12),
             text_color="#ffd7d9" if INSTALLATION_SUSPENDED else "#d8f4e4",
         ).pack(fill="x", padx=14, pady=10)
 
@@ -743,7 +888,7 @@ class PatcherApp(ctk.CTk):
             text="Pasta do jogo (…/ELDEN RING/Game)",
             text_color=TEXT,
             anchor="w",
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            font=ctk.CTkFont(UI_FONT, 13, "bold"),
         ).pack(fill="x", padx=16, pady=(13, 6))
         row = ctk.CTkFrame(path_card, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=(0, 14))
@@ -776,7 +921,7 @@ class PatcherApp(ctk.CTk):
                 else "Instalar dublagem"
             ),
             height=42,
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            font=ctk.CTkFont(UI_FONT, 13, "bold"),
             fg_color="#5a3033" if INSTALLATION_SUSPENDED else GOLD,
             hover_color="#754046" if INSTALLATION_SUSPENDED else GOLD_HOVER,
             text_color="#f1d7d8" if INSTALLATION_SUSPENDED else "#111116",
@@ -822,7 +967,7 @@ class PatcherApp(ctk.CTk):
             textvariable=self.status_var,
             text_color=TEXT,
             anchor="w",
-            font=ctk.CTkFont("Segoe UI", 12, "bold"),
+            font=ctk.CTkFont(UI_FONT, 12, "bold"),
         )
         self.status_label.pack(fill="x", padx=16, pady=(14, 6))
         self.progress = ctk.CTkProgressBar(
@@ -834,7 +979,7 @@ class PatcherApp(ctk.CTk):
             progress_card,
             fg_color="#0d0d14",
             text_color="#d6d0c3",
-            font=ctk.CTkFont("Consolas", 11),
+            font=ctk.CTkFont(MONO_FONT, 11),
             wrap="word",
         )
         self.log_box.pack(fill="both", expand=True, padx=16, pady=(0, 14))
@@ -843,7 +988,7 @@ class PatcherApp(ctk.CTk):
             "Modo seguro ativo. O programa nao baixa nem executa codigo remoto e nao encerra processos."
         )
         self._log(
-            "Use sempre a mesma conta do Windows e restaure o audio antes de mover a biblioteca Steam."
+            "Use sempre o mesmo usuario do sistema e restaure o audio antes de mover a biblioteca Steam."
         )
 
     def _browse(self) -> None:
@@ -1071,7 +1216,7 @@ class PatcherApp(ctk.CTk):
             anchor="w",
             wraplength=700,
             text_color=TEXT,
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            font=ctk.CTkFont(UI_FONT, 13, "bold"),
         ).pack(fill="x", padx=22, pady=(20, 10))
         ctk.CTkLabel(
             dialog,
@@ -1089,7 +1234,7 @@ class PatcherApp(ctk.CTk):
             dialog,
             fg_color="#0d0d14",
             text_color="#d6d0c3",
-            font=ctk.CTkFont("Consolas", 11),
+            font=ctk.CTkFont(MONO_FONT, 11),
             wrap="none",
         )
         report_box.pack(fill="both", expand=True, padx=22, pady=(0, 14))
@@ -1557,11 +1702,12 @@ class PatcherApp(ctk.CTk):
                 )
             )
         except PermissionError as exc:
+            platform_name = "Windows" if sys.platform == "win32" else "Linux"
             message = (
-                "O Windows negou acesso aos arquivos do jogo. Feche o jogo e o Easy "
+                f"O {platform_name} negou acesso aos arquivos do jogo. Feche o jogo e o Easy "
                 "Anti-Cheat. Configure uma biblioteca Steam gravavel pelo seu usuario "
                 "ou ajuste somente a permissao da pasta do jogo; nao execute o patcher "
-                f"como administrador.\n\nDetalhe: {exc}"
+                f"como administrador/root.\n\nDetalhe: {exc}"
             )
             self._report_failure(
                 title="ERPT-BR - permissao negada",
@@ -1712,6 +1858,10 @@ def main() -> int:
         root.destroy()
         return 2
     app = PatcherApp()
+    if os.environ.get("ERPTBR_GUI_SMOKE") == "1":
+        app.update_idletasks()
+        app.destroy()
+        return 0
     app.mainloop()
     return 0
 

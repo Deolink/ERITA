@@ -43,8 +43,8 @@ WHEELS = {
     "pycryptodome-3.23.0-cp37-abi3-win_amd64.whl": "c75b52aacc6c0c260f204cbdd834f76edc9fb0d8e0da9fbf8352ef58202564e2",
 }
 
-FINAL_VERSION = "v0.9.6"
-FINAL_ARCHIVE_NAME = "ERPT-BR-v0.9.6-Windows.zip"
+FINAL_VERSION = "v0.9.7"
+FINAL_ARCHIVE_NAME = "ERPT-BR-v0.9.7-Windows.zip"
 # The reviewed payload ZIP remains an authenticated build input only.
 # Its members have been inflated directly below patch_data/ since v0.9.5;
 # this archive is never copied into the user-facing release.

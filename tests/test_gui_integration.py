@@ -10,8 +10,8 @@ from patcher import patcher_gui
 
 
 class GuiIntegrationTests(unittest.TestCase):
-    def test_v096_production_installation_is_enabled(self) -> None:
-        self.assertEqual(patcher_gui.PATCHER_VERSION, "0.9.6")
+    def test_v097_production_installation_is_enabled(self) -> None:
+        self.assertEqual(patcher_gui.PATCHER_VERSION, "0.9.7")
         self.assertFalse(patcher_gui.INSTALLATION_SUSPENDED)
 
     def test_success_message_never_treats_appmanifest_as_online_proof(self) -> None:
@@ -227,6 +227,110 @@ class GuiIntegrationTests(unittest.TestCase):
             roots = patcher_gui._steam_roots()
 
         self.assertIn(Path(r"D:\PortableSteam"), roots)
+
+    def test_linux_steam_roots_include_xdg_flatpak_and_snap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "HomeWithCase"
+            xdg = Path(temporary) / "XDGData"
+            with (
+                mock.patch.object(patcher_gui.sys, "platform", "linux"),
+                mock.patch.object(patcher_gui.Path, "home", return_value=home),
+                mock.patch.dict(
+                    patcher_gui.os.environ,
+                    {
+                        "XDG_DATA_HOME": str(xdg),
+                        "STEAM_COMPAT_CLIENT_INSTALL_PATH": str(
+                            Path(temporary) / "CompatSteam"
+                        ),
+                    },
+                    clear=True,
+                ),
+            ):
+                roots = patcher_gui._steam_roots()
+
+        self.assertIn(xdg / "Steam", roots)
+        self.assertIn(Path(temporary) / "CompatSteam", roots)
+        self.assertIn(home / ".steam" / "root", roots)
+        self.assertIn(
+            home
+            / ".var"
+            / "app"
+            / "com.valvesoftware.Steam"
+            / ".local"
+            / "share"
+            / "Steam",
+            roots,
+        )
+        self.assertIn(
+            home
+            / "snap"
+            / "steam"
+            / "common"
+            / ".local"
+            / "share"
+            / "Steam",
+            roots,
+        )
+
+    def test_linux_path_keys_preserve_case(self) -> None:
+        with mock.patch.object(patcher_gui.sys, "platform", "linux"):
+            upper = patcher_gui._path_key(Path("Library") / "Steam")
+            lower = patcher_gui._path_key(Path("library") / "steam")
+
+        self.assertNotEqual(upper, lower)
+
+    def test_linux_process_scanner_detects_proton_game_argument(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            proc = Path(temporary)
+            process = proc / "4242"
+            process.mkdir()
+            (process / "comm").write_text("pressure-vessel\n", encoding="utf-8")
+            (process / "cmdline").write_bytes(
+                b"/usr/bin/wine64\0Z:\\steam\\ELDEN RING\\Game\\eldenring.exe\0"
+            )
+            uid = process.stat().st_uid
+            with mock.patch.object(
+                patcher_gui.os,
+                "getuid",
+                return_value=uid,
+                create=True,
+            ):
+                blockers = patcher_gui._linux_running_blockers(proc)
+
+        self.assertIn("Elden Ring", blockers)
+
+    def test_linux_process_scanner_detects_unknown_eac_variant(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            proc = Path(temporary)
+            process = proc / "99"
+            process.mkdir()
+            (process / "comm").write_text(
+                "easyanticheat_custom.exe\n", encoding="utf-8"
+            )
+            (process / "cmdline").write_bytes(b"easyanticheat_custom.exe\0")
+            uid = process.stat().st_uid
+            with mock.patch.object(
+                patcher_gui.os,
+                "getuid",
+                return_value=uid,
+                create=True,
+            ):
+                blockers = patcher_gui._linux_running_blockers(proc)
+
+        self.assertEqual(blockers, ["Easy Anti-Cheat"])
+
+    def test_linux_process_scanner_fails_closed_without_proc(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            mock.patch.object(
+                patcher_gui.os,
+                "getuid",
+                return_value=0,
+                create=True,
+            ),
+            self.assertRaisesRegex(patcher_gui.PatcherError, "consultar /proc"),
+        ):
+            patcher_gui._linux_running_blockers(Path(temporary) / "missing")
 
     def test_reads_and_requires_the_pinned_steam_build(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

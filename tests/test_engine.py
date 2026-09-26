@@ -5,12 +5,117 @@ import json
 import os
 import shutil
 import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from patcher import bnk, engine
+
+
+class CoreFilesystemPortabilityTests(unittest.TestCase):
+    def test_posix_path_identity_preserves_case(self) -> None:
+        upper = Path("root") / "Game"
+        lower = Path("root") / "game"
+
+        with mock.patch.object(engine, "_is_windows", return_value=False):
+            self.assertNotEqual(
+                engine._path_identity_text(upper),
+                engine._path_identity_text(lower),
+            )
+        with mock.patch.object(engine, "_is_windows", return_value=True):
+            self.assertEqual(
+                engine._path_identity_text(upper),
+                engine._path_identity_text(lower),
+            )
+
+    def test_posix_backup_root_uses_xdg_state_and_ignores_localappdata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            xdg_state = Path(temp) / "state"
+            with (
+                mock.patch.object(engine, "_is_windows", return_value=False),
+                mock.patch.dict(
+                    engine.os.environ,
+                    {
+                        "LOCALAPPDATA": str(Path(temp) / "windows-only"),
+                        "XDG_STATE_HOME": str(xdg_state),
+                    },
+                    clear=True,
+                ),
+            ):
+                self.assertEqual(
+                    engine._default_backup_root(),
+                    xdg_state / "ERPT-BR" / "backups",
+                )
+
+    def test_rename_noreplace_dispatches_to_linux_and_fsyncs_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"data")
+
+            def linux_rename(left: Path, right: Path) -> None:
+                os.rename(left, right)
+
+            with (
+                mock.patch.object(engine, "_is_windows", return_value=False),
+                mock.patch.object(engine.sys, "platform", "linux"),
+                mock.patch.object(
+                    engine,
+                    "_linux_rename_noreplace",
+                    side_effect=linux_rename,
+                ) as rename_mock,
+                mock.patch.object(engine, "_fsync_directory") as fsync_mock,
+            ):
+                engine._rename_noreplace(source, destination)
+
+            rename_mock.assert_called_once()
+            fsync_mock.assert_called_once_with(root.resolve())
+            self.assertFalse(source.exists())
+            self.assertEqual(destination.read_bytes(), b"data")
+
+    def test_non_linux_posix_rename_fails_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"data")
+            with (
+                mock.patch.object(engine, "_is_windows", return_value=False),
+                mock.patch.object(engine.sys, "platform", "freebsd-test"),
+            ):
+                with self.assertRaises(OSError):
+                    engine._rename_noreplace(source, destination)
+            self.assertEqual(source.read_bytes(), b"data")
+            self.assertFalse(destination.exists())
+
+    def test_atomic_json_fsyncs_parent_after_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "manifest.json"
+            with mock.patch.object(engine, "_fsync_directory") as fsync_mock:
+                engine._atomic_json(destination, {"state": "prepared"})
+            fsync_mock.assert_called_once_with(destination.parent)
+            self.assertEqual(
+                json.loads(destination.read_text(encoding="utf-8")),
+                {"state": "prepared"},
+            )
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux renameat2")
+    def test_linux_rename_noreplace_preserves_existing_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"source")
+            destination.write_bytes(b"external")
+
+            with self.assertRaises(FileExistsError):
+                engine._linux_rename_noreplace(source, destination)
+
+            self.assertEqual(source.read_bytes(), b"source")
+            self.assertEqual(destination.read_bytes(), b"external")
 
 
 def make_bhd(entries: list[tuple[int, int, int, int]]) -> bytes:

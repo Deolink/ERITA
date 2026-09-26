@@ -3,10 +3,12 @@
 ## Modelo de distribuição
 
 - O projeto não publica executável próprio.
-- O único download destinado ao usuário é
-  `ERPT-BR-v0.9.6-Windows.zip`. Ele contém o código-fonte do patcher, scripts
-  `.cmd` transparentes, dependências travadas e o payload de áudio autenticado.
-- Os ZIPs automáticos **Source code** do GitHub não são instaladores e não
+- A versão 0.9.7 publica dois downloads destinados ao usuário:
+  `ERPT-BR-v0.9.7-Windows.zip` para Windows x64 e
+  `ERPT-BR-v0.9.7-Linux-x86_64.tar.gz` para Linux x86_64 e Steam Deck no Modo
+  Desktop. Ambos contêm o código-fonte do patcher, launcher transparente,
+  dependências travadas e o payload de áudio autenticado.
+- Os arquivos automáticos **Source code** do GitHub não são instaladores e não
   contêm o pacote completo.
 - O PyCryptodome inclui código nativo verificado, mas nada é copiado ou injetado
   como DLL no jogo.
@@ -23,6 +25,12 @@
   assinatura Authenticode válida e o publicador Python Software Foundation.
 - O Python é instalado no perfil atual, não é adicionado ao `PATH` e não há
   tentativa de autoelevação. O executável oficial não é incluído no ZIP do mod.
+- No Linux, `ERPT-BR.sh` recusa root e prepara tudo dentro do perfil do usuário.
+  O pacote inclui e autentica o runtime Astral `python-build-standalone`
+  20260924, CPython 3.13.15 x86_64, sem free-threading, e wheels Linux fixados.
+- A preparação Linux usa apenas o runtime, o lock e os wheels incluídos, com
+  `pip --no-index --require-hashes --only-binary=:all:`. Ela não exige Python do
+  sistema, `sudo` nem rede, inclusive na primeira execução.
 
 ## Integridade do payload de áudio
 
@@ -68,10 +76,14 @@ manifesto externo não contorna nenhuma verificação dos arquivos reais.
 
 O patcher não usa Mod Engine 3, não inicia Elden Ring, não injeta bibliotecas,
 não altera o Easy Anti-Cheat e não muda a forma de iniciar o jogo pela Steam. O
-payload usado pela 0.9.6 foi validado em uma sessão real da 0.9.4 com EAC e
-conexão online ativos. A 0.9.5 alterou somente sua forma de distribuição; a
+payload usado pela 0.9.7 foi validado no Windows em uma sessão real da 0.9.4
+com EAC e conexão online ativos. A 0.9.5 alterou somente sua forma de
+distribuição; a
 0.9.6 altera somente a autoridade usada para reconhecer a compatibilidade,
-mantendo o mesmo payload autenticado.
+mantendo o mesmo payload autenticado; a 0.9.7 porta o instalador para Linux sem
+alterar esse áudio. A sessão Windows não comprova o comportamento no
+Linux/Proton. O modo online no Linux só receberá afirmação de suporte depois de
+validação no CI e teste físico reproduzível.
 
 Os dados modificados nos BDTs não são acompanhados de regravação ou reassinatura
 dos índices BHD. Consequentemente, 8.973 recursos deixam de corresponder aos
@@ -88,23 +100,26 @@ e não como prova do conteúdo instalado.
 
 ## Integridade do release
 
-Cada release desta linha publica um único ZIP próprio destinado ao usuário. O
-GitHub registra o digest SHA-256 do asset e gera um atestado de proveniência pelo
-GitHub Actions. Para verificar o pacote com a CLI do GitHub:
+O release 0.9.7 publica um ZIP Windows e um `tar.gz` Linux próprios destinados ao
+usuário. O GitHub registra o digest SHA-256 de cada asset e gera um atestado de
+proveniência pelo GitHub Actions. Para verificar os pacotes com a CLI do GitHub:
 
 ```text
-gh attestation verify ERPT-BR-v0.9.6-Windows.zip --repo lorepamplona/ERPT-BR
+gh attestation verify ERPT-BR-v0.9.7-Windows.zip --repo lorepamplona/ERPT-BR
+gh attestation verify ERPT-BR-v0.9.7-Linux-x86_64.tar.gz --repo lorepamplona/ERPT-BR
 ```
 
 O workflow usa dependências travadas por SHA de commit e não deve sobrescrever
-um asset de release existente. O hash final do pacote Windows é publicado
-somente depois de sua montagem e verificação.
+um asset de release existente. Os hashes finais são publicados somente depois
+da montagem e verificação dos dois pacotes.
 
 ## Dados locais e privacidade
 
 O programa não coleta telemetria nem envia arquivos do usuário. O payload de
-áudio acompanha o pacote completo e é validado localmente. O bootstrap pode
-acessar WinGet ou `python.org` para instalar o Python oficial.
+áudio acompanha o pacote completo e é validado localmente. No Windows, o
+bootstrap pode acessar WinGet ou `python.org` para instalar o Python oficial. No
+Linux, o runtime e as dependências acompanham o `tar.gz` e a primeira execução
+é offline.
 
 Os botões **Detalhes** e **Abrir chamado** só pedem ao navegador padrão que abra
 o GitHub depois de um clique explícito. O diagnóstico é processado localmente,
@@ -114,14 +129,17 @@ nova leitura dos arquivos do jogo nem inclui seus hashes; as verificações de
 compatibilidade da operação são separadas. O usuário deve revisar e enviar o
 conteúdo manualmente.
 
-Backups, ambientes isolados e cache ficam no perfil local. Árvores abandonadas
+Backups, ambientes isolados e cache ficam no perfil local. No Linux, o suporte
+inicial presume `ext4`; NTFS, exFAT e btrfs ainda não possuem promessa de
+compatibilidade sem teste específico. Árvores abandonadas
 ou transações interrompidas são preservadas e reportadas; o programa não tenta
 exclusão recursiva por um caminho que possa ter sido trocado por junction ou
 outro reparse point.
 
-Esses controles partem de uma sessão normal do Windows, sem outro processo
-malicioso já executando como o mesmo usuário. Um processo com essa autoridade já
-poderia alterar o fonte extraído, o ambiente local, os backups e o jogo.
+Esses controles partem de uma sessão normal do Windows ou Linux, sem outro
+processo malicioso já executando como o mesmo usuário. Um processo com essa
+autoridade já poderia alterar o fonte extraído, o ambiente local, os backups e
+o jogo.
 
 ## Reportar vulnerabilidade
 

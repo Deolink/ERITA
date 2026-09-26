@@ -20,6 +20,69 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 from patcher import patch_data  # noqa: E402
 
 
+class CoreFilesystemPortabilityTests(unittest.TestCase):
+    def test_posix_cache_root_uses_xdg_cache_and_ignores_localappdata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            xdg_cache = Path(temp) / "cache"
+            with (
+                mock.patch.object(patch_data, "_is_windows", return_value=False),
+                mock.patch.dict(
+                    patch_data.os.environ,
+                    {
+                        "LOCALAPPDATA": str(Path(temp) / "windows-only"),
+                        "XDG_CACHE_HOME": str(xdg_cache),
+                    },
+                    clear=True,
+                ),
+            ):
+                self.assertEqual(
+                    patch_data._default_cache_directory(),
+                    (xdg_cache / "ERPT-BR" / "payload").resolve(),
+                )
+
+    def test_rename_noreplace_dispatches_to_linux_and_fsyncs_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"data")
+
+            def linux_rename(left: Path, right: Path) -> None:
+                os.rename(left, right)
+
+            with (
+                mock.patch.object(patch_data, "_is_windows", return_value=False),
+                mock.patch.object(patch_data.sys, "platform", "linux"),
+                mock.patch.object(
+                    patch_data,
+                    "_linux_rename_noreplace",
+                    side_effect=linux_rename,
+                ) as rename_mock,
+                mock.patch.object(patch_data, "_fsync_directory") as fsync_mock,
+            ):
+                patch_data._rename_noreplace(source, destination)
+
+            rename_mock.assert_called_once()
+            fsync_mock.assert_called_once_with(root.resolve())
+            self.assertFalse(source.exists())
+            self.assertEqual(destination.read_bytes(), b"data")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux renameat2")
+    def test_linux_rename_noreplace_preserves_existing_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"source")
+            destination.write_bytes(b"external")
+
+            with self.assertRaises(FileExistsError):
+                patch_data._linux_rename_noreplace(source, destination)
+
+            self.assertEqual(source.read_bytes(), b"source")
+            self.assertEqual(destination.read_bytes(), b"external")
+
+
 WEM_BYTES = b"RIFF" + (4).to_bytes(4, "little") + b"WAVE"
 BNK_BYTES = b"BKHD"
 

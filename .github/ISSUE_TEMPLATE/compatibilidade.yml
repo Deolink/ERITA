@@ -16,7 +16,7 @@ body:
     attributes:
       label: "Versão do ERPT-BR"
       description: "Informe a versão mostrada no instalador ou no nome do arquivo baixado."
-      placeholder: "Ex.: 0.9.6"
+      placeholder: "Ex.: 0.9.7"
     validations:
       required: true
 
@@ -38,12 +38,56 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: windows_version
+  - type: dropdown
+    id: platform
     attributes:
-      label: "Versão do Windows"
-      description: "Pressione Win + R, digite winver e copie a versão mostrada."
-      placeholder: "Ex.: Windows 11 24H2"
+      label: "Plataforma"
+      description: "Selecione o sistema em que executou o instalador."
+      options:
+        - "Windows x64"
+        - "Linux x86_64"
+        - "Steam Deck — Modo Desktop"
+    validations:
+      required: true
+
+  - type: input
+    id: operating_system
+    attributes:
+      label: "Versão do sistema"
+      description: "No Windows, use winver. No Linux, informe distribuição e versão; no Steam Deck, informe a versão do SteamOS."
+      placeholder: "Ex.: Windows 11 24H2, Ubuntu 24.04 ou SteamOS 3.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: steam_distribution
+    attributes:
+      label: "Instalação da Steam"
+      description: "Informe como a Steam foi instalada nesse sistema."
+      options:
+        - "Windows"
+        - "Linux nativa — pacote da distribuição"
+        - "Linux Flatpak"
+        - "Linux Snap"
+        - "SteamOS"
+        - "Não sei"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: filesystem
+    attributes:
+      label: "Sistema de arquivos da biblioteca do jogo"
+      description: "No Linux, ext4 é o suporte inicial da 0.9.7. Se não souber, escolha a última opção."
+      options:
+        - "Windows — NTFS"
+        - "Windows — outro"
+        - "Linux — ext4"
+        - "Linux — btrfs"
+        - "Linux — NTFS"
+        - "Linux — exFAT"
+        - "Linux — outro"
+        - "Não sei"
     validations:
       required: true
 
