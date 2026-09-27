@@ -1072,13 +1072,20 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
     ) -> None:
         destination = self.root / "cache" / self.spec.archive_name
         guard_fd = 4242
+        real_close = os.close
+
+        def close_real_descriptors(descriptor: int) -> None:
+            if descriptor != guard_fd:
+                real_close(descriptor)
 
         with (
             mock.patch.object(patch_data.sys, "platform", "linux"),
             mock.patch.object(
                 patch_data.os, "dup", return_value=guard_fd
             ) as duplicate,
-            mock.patch.object(patch_data.os, "close") as close,
+            mock.patch.object(
+                patch_data.os, "close", side_effect=close_real_descriptors
+            ) as close,
         ):
             result = patch_data.download_archive(
                 destination,
@@ -1088,7 +1095,7 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
 
         self.assertEqual(result, destination)
         duplicate.assert_called_once()
-        close.assert_called_once_with(guard_fd)
+        self.assertEqual(close.call_args_list.count(mock.call(guard_fd)), 1)
 
     def test_download_rehashes_in_place_tamper_immediately_before_publish(
         self,
