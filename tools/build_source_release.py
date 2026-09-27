@@ -48,14 +48,15 @@ FINAL_ARCHIVE_NAME = "ERPT-BR-v0.9.7-Windows.zip"
 # The reviewed payload ZIP remains an authenticated build input only.
 # Its members have been inflated directly below patch_data/ since v0.9.5;
 # this archive is never copied into the user-facing release.
-PAYLOAD_ARCHIVE_SIZE = 588_468_447
-PAYLOAD_SHA256 = "430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680"
-PAYLOAD_TREE_SHA256 = "8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb"
-PAYLOAD_FILE_COUNT = 9_241
-PAYLOAD_WEM_COUNT = 8_969
+PAYLOAD_ARCHIVE_SIZE = 588_370_781
+PAYLOAD_SHA256 = "873a432f1f1a8a42fca0aa71610e019563b79da3772656c48280b31a80a858a6"
+PAYLOAD_TREE_SHA256 = "e97467e8ebbd1da87be96a44e4a2ee5694cd41c0bf592159b0570258d0b8460e"
+PAYLOAD_FILE_COUNT = 9_240
+PAYLOAD_WEM_COUNT = 8_968
 PAYLOAD_BNK_COUNT = 272
-PAYLOAD_UNCOMPRESSED_SIZE = 605_706_607
+PAYLOAD_UNCOMPRESSED_SIZE = 605_607_009
 PAYLOAD_MAX_FILE_SIZE = 74_956_066
+SELLEN_VANILLA_WEM_ID = "553755359"
 COPY_CHUNK_SIZE = 1024 * 1024
 ARCHIVE_TIMESTAMP = (2020, 1, 1, 0, 0, 0)
 TEXT_SUFFIXES = frozenset({".cmd", ".lock", ".md", ".py"})
@@ -144,6 +145,11 @@ def _safe_payload_relative(name: str) -> str:
     return relative
 
 
+def _is_sellen_vanilla_wem(relative: str) -> bool:
+    path = PurePosixPath(relative)
+    return path.suffix.casefold() == ".wem" and path.stem == SELLEN_VANILLA_WEM_ID
+
+
 def _validated_payload_entries(
     infos: list[zipfile.ZipInfo],
 ) -> list[tuple[str, zipfile.ZipInfo]]:
@@ -161,6 +167,10 @@ def _validated_payload_entries(
     max_file_size = 0
     for info in infos:
         relative = _safe_payload_relative(info.filename)
+        if _is_sellen_vanilla_wem(relative):
+            raise SystemExit(
+                "O WEM não verbal da animação da Sellen deve permanecer vanilla."
+            )
         canonical = unicodedata.normalize("NFC", relative).casefold()
         if canonical in seen:
             raise SystemExit(f"Nome duplicado no payload de entrada: {relative!r}")

@@ -40,17 +40,17 @@ Steam BuildID `25080141`. O patcher valida antes do uso:
 - formato distribuído desde a 0.9.5: pasta plana `patch_data`, sem arquivo compactado
   de áudio aninhado;
 - SHA-256 canônico da árvore:
-  `8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb`;
-- inventário: 8.969 WEMs e 272 aliases BNK, total de 9.241 arquivos;
-- tamanho descompactado: `605706607` bytes;
+  `e97467e8ebbd1da87be96a44e4a2ee5694cd41c0bf592159b0570258d0b8460e`;
+- inventário: 8.968 WEMs e 272 aliases BNK, total de 9.240 arquivos;
+- tamanho descompactado: `605607009` bytes;
 - maior arquivo: `74956066` bytes.
 
 Qualquer diferença de tamanho, hash, estrutura, inventário ou caminho faz o
 patcher recusar o payload antes de escrever no jogo.
 
 O arquivo de origem usado para montar essa árvore permanece fixado em
-588.468.447 bytes e SHA-256
-`430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680`.
+588.370.781 bytes e SHA-256
+`873a432f1f1a8a42fca0aa71610e019563b79da3772656c48280b31a80a858a6`.
 Ele é apenas uma entrada autenticada do workflow e não é colocado dentro do ZIP
 entregue ao usuário.
 
@@ -76,18 +76,19 @@ manifesto externo não contorna nenhuma verificação dos arquivos reais.
 
 O patcher não usa Mod Engine 3, não inicia Elden Ring, não injeta bibliotecas,
 não altera o Easy Anti-Cheat e não muda a forma de iniciar o jogo pela Steam. O
-payload usado pela 0.9.7 foi validado no Windows em uma sessão real da 0.9.4
+payload que serviu de base para a 0.9.7 foi validado no Windows em uma sessão real da 0.9.4
 com EAC e conexão online ativos. A 0.9.5 alterou somente sua forma de
 distribuição; a
 0.9.6 altera somente a autoridade usada para reconhecer a compatibilidade,
-mantendo o mesmo payload autenticado; a 0.9.7 porta o instalador para Linux sem
-alterar esse áudio. A sessão Windows não comprova o comportamento no
-Linux/Proton. O modo online no Linux só receberá afirmação de suporte depois de
-validação no CI e teste físico reproduzível.
+mantendo o mesmo payload autenticado. A 0.9.7 porta o instalador para Linux e
+mantém no vanilla um efeito não verbal da animação da Sellen; essa mitigação ainda
+precisa de confirmação dentro da missão. A sessão Windows não comprova o
+comportamento no Linux/Proton. O modo online no Linux só receberá afirmação de
+suporte depois de validação no CI e teste físico reproduzível.
 
 Os dados modificados nos BDTs não são acompanhados de regravação ou reassinatura
-dos índices BHD. Consequentemente, 8.973 recursos deixam de corresponder aos
-hashes salted originais. No modo de produção, o patcher permite apenas essas
+dos índices BHD. Consequentemente, os recursos modificados deixam de
+corresponder aos hashes salted originais. No modo de produção, o patcher permite apenas essas
 divergências quando elas pertencem exatamente aos slots do plano autenticado;
 uma divergência fora desse escopo interrompe a instalação. O teste online não
 transforma essa limitação em garantia de compatibilidade ou de ausência de risco.

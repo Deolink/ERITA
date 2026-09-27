@@ -254,7 +254,11 @@ class CandidatePayloadTests(unittest.TestCase):
                     "EXPECTED_REBUILT_ALIAS_TREE_SHA256",
                     aliases_hash,
                 ),
-                mock.patch.object(build_candidate_payload, "EXPECTED_WEM_COUNT", 0),
+                mock.patch.object(
+                    build_candidate_payload,
+                    "EXPECTED_REBUILD_EXTERNAL_WEM_COUNT",
+                    0,
+                ),
                 mock.patch.object(build_candidate_payload, "EXPECTED_BNK_COUNT", 2),
                 mock.patch.object(
                     build_candidate_payload, "EXPECTED_PHYSICAL_BANK_COUNT", 1
@@ -327,6 +331,59 @@ class CandidatePayloadTests(unittest.TestCase):
                     spec=spec,
                     expected_hashes={"100.wem": hashlib.sha256(b"wrong").hexdigest()},
                 )
+
+    def test_sellen_hotfix_excludes_only_the_authenticated_wem(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            suspect = root / "enus" / "wem" / "55" / "553755359.wem"
+            other = root / "enus" / "wem" / "55" / "553755360.wem"
+            suspect.parent.mkdir(parents=True)
+            suspect.write_bytes(WEM)
+            other.write_bytes(WEM + b"other")
+            records = (
+                _record(root, "enus/wem/55/553755359.wem", "WEM histórico autenticado"),
+                _record(root, "enus/wem/55/553755360.wem", "WEM histórico autenticado"),
+            )
+            with (
+                mock.patch.object(
+                    build_candidate_payload,
+                    "EXCLUDED_WEM_SIZE",
+                    len(WEM),
+                ),
+                mock.patch.object(
+                    build_candidate_payload,
+                    "EXCLUDED_WEM_SHA256",
+                    hashlib.sha256(WEM).hexdigest(),
+                ),
+            ):
+                selected = build_candidate_payload._select_release_wems(records)
+
+            self.assertEqual(
+                tuple(record.relative for record in selected),
+                ("enus/wem/55/553755360.wem",),
+            )
+
+    def test_sellen_hotfix_rejects_missing_or_changed_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            suspect = root / "enus" / "wem" / "55" / "553755359.wem"
+            suspect.parent.mkdir(parents=True)
+            suspect.write_bytes(WEM)
+            record = _record(
+                root,
+                "enus/wem/55/553755359.wem",
+                "WEM histórico autenticado",
+            )
+            with self.assertRaisesRegex(
+                build_candidate_payload.CandidateBuildError,
+                "não apareceu exatamente uma vez",
+            ):
+                build_candidate_payload._select_release_wems(())
+            with self.assertRaisesRegex(
+                build_candidate_payload.CandidateBuildError,
+                "não corresponde",
+            ):
+                build_candidate_payload._select_release_wems((record,))
 
     def test_rejects_unsafe_paths_and_existing_archive(self) -> None:
         for value in (

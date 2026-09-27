@@ -179,24 +179,24 @@ class FakeResponse(io.BytesIO):
 
 
 class ProductionManifestTests(unittest.TestCase):
-    def test_production_manifest_is_pinned_to_bundled_v094(self) -> None:
+    def test_production_manifest_is_pinned_to_bundled_v097(self) -> None:
         spec = patch_data.PRODUCTION_PAYLOAD
-        self.assertEqual(spec.version, "v0.9.4")
-        self.assertEqual(spec.archive_name, "patch_data_v094.zip")
+        self.assertEqual(spec.version, "v0.9.7")
+        self.assertEqual(spec.archive_name, "patch_data_v097.zip")
         self.assertIsNone(spec.url)
-        self.assertEqual(spec.archive_size, 588_468_447)
+        self.assertEqual(spec.archive_size, 588_370_781)
         self.assertEqual(
             spec.sha256,
-            "430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680",
+            "873a432f1f1a8a42fca0aa71610e019563b79da3772656c48280b31a80a858a6",
         )
-        self.assertEqual(spec.wem_count, 8_969)
+        self.assertEqual(spec.wem_count, 8_968)
         self.assertEqual(spec.bnk_count, 272)
-        self.assertEqual(spec.file_count, 9_241)
-        self.assertEqual(spec.uncompressed_size, 605_706_607)
+        self.assertEqual(spec.file_count, 9_240)
+        self.assertEqual(spec.uncompressed_size, 605_607_009)
         self.assertEqual(spec.max_file_size, 74_956_066)
         self.assertEqual(
             spec.tree_sha256,
-            "8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb",
+            "e97467e8ebbd1da87be96a44e4a2ee5694cd41c0bf592159b0570258d0b8460e",
         )
 
     def test_legacy_manifest_remains_explicitly_pinned_to_v081(self) -> None:

@@ -2601,6 +2601,85 @@ class PatchEngineTests(unittest.TestCase):
             records = {item["bdt"]: item for item in manifest["archives"]}
             self.assertNotIn("patched_sha256", records["sd_dlc02.bdt"])
 
+    def test_contractive_update_restores_one_omitted_wem_in_touched_archive(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            game_dir = root / "Game"
+            sd_dir = game_dir / "sd"
+            sd_dir.mkdir(parents=True)
+            slot_size = 64
+            sellen_path = "enus/wem/55/553755359.wem"
+            other_path = "enus/wem/55/553755360.wem"
+            vanilla_sellen = engine.normalize_wem(
+                make_wem(b"fmt!", b"vanilla-sellen"), slot_size
+            )
+            vanilla_other = engine.normalize_wem(
+                make_wem(b"fmt!", b"vanilla-other"), slot_size
+            )
+            original_bdt = vanilla_sellen + vanilla_other
+            bhd_path, bdt_path = write_archive(
+                sd_dir,
+                "sd",
+                [
+                    (engine.hash_path(sellen_path), slot_size, slot_size, 0),
+                    (
+                        engine.hash_path(other_path),
+                        slot_size,
+                        slot_size,
+                        slot_size,
+                    ),
+                ],
+                original_bdt,
+            )
+            original_bhd = bhd_path.read_bytes()
+            backup_root = root / "backups"
+            payload = root / "payload"
+            (payload / "enus" / "wem" / "55").mkdir(parents=True)
+            sellen_payload = payload / Path(*sellen_path.split("/"))
+            other_payload = payload / Path(*other_path.split("/"))
+            sellen_payload.write_bytes(make_wem(b"fmt!", b"dubbed-sellen"))
+            other_payload.write_bytes(make_wem(b"fmt!", b"dubbed-other"))
+
+            first = engine.PatchEngine(game_dir, backup_root=backup_root)
+            first.load_archives()
+            first.apply_plan(first.build_plan(payload))
+            first_result = bdt_path.read_bytes()
+            self.assertNotEqual(first_result[:slot_size], vanilla_sellen)
+            self.assertNotEqual(first_result[slot_size:], vanilla_other)
+
+            sellen_payload.unlink()
+            other_payload.write_bytes(make_wem(b"fmt!", b"dubbed-other-v2"))
+            update = engine.PatchEngine(game_dir, backup_root=backup_root)
+            update.load_archives()
+            written, unmatched = update.apply_plan(update.build_plan(payload))
+            updated_bdt = bdt_path.read_bytes()
+
+            self.assertEqual((written, unmatched), (1, 0))
+            self.assertEqual(updated_bdt[:slot_size], vanilla_sellen)
+            self.assertEqual(
+                updated_bdt[slot_size:],
+                engine.normalize_wem(other_payload.read_bytes(), slot_size),
+            )
+            self.assertEqual(bhd_path.read_bytes(), original_bhd)
+
+            reinstall = engine.PatchEngine(game_dir, backup_root=backup_root)
+            reinstall.load_archives()
+            reinstall.apply_plan(reinstall.build_plan(payload))
+            self.assertEqual(bdt_path.read_bytes(), updated_bdt)
+            manifest_path = next(backup_root.glob("*/*/manifest.json"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["state"], "applied")
+
+            reinstall.restore_current_backup()
+            self.assertEqual(bdt_path.read_bytes(), original_bdt)
+            self.assertEqual(bhd_path.read_bytes(), original_bhd)
+            restored_manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(restored_manifest["state"], "restored")
+
     def test_truncated_foreign_manifest_cannot_bless_patched_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

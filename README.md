@@ -7,9 +7,12 @@ Projeto de dublagem em Português Brasileiro para Elden Ring no PC.
 > (Steam BuildID `25080141`). Os bancos de áudio foram reconstruídos sobre os
 > bancos originais dessa versão para preservar sons adicionados pelo jogo,
 > inclusive os cliques da interface que desapareciam nas versões 0.9.1 e 0.9.2.
-> A 0.9.7 mantém exatamente esse áudio corrigido e a regra da 0.9.6 que torna o
-> `appmanifest` da Steam opcional. Esta versão também adiciona um pacote portátil
-> inicial para Linux x86_64 e Steam Deck no Modo Desktop.
+> A 0.9.7 mantém esses bancos corrigidos e aplica uma mitigação conservadora ao
+> bug relatado na missão da Sellen: um efeito não verbal da animação da Pedra
+> Brilhante Primordial permanece vanilla. Ela também conserva a regra da 0.9.6
+> que torna o `appmanifest` da Steam opcional.
+> Esta versão também adiciona um pacote portátil inicial para Linux x86_64 e
+> Steam Deck no Modo Desktop.
 
 ## Download correto
 
@@ -28,7 +31,7 @@ do payload.
 
 1. Feche Elden Ring e Easy Anti-Cheat.
 2. Extraia **todo** o conteúdo de `ERPT-BR-v0.9.7-Windows.zip` para uma pasta
-   normal.
+   nova e vazia. Não extraia por cima de uma versão anterior.
 3. Dê dois cliques em `ERPT-BR.cmd`.
 4. Confirme a pasta `ELDEN RING\Game` detectada pela Steam ou selecione-a.
 5. Clique em **Instalar dublagem** e aguarde a confirmação final.
@@ -52,7 +55,8 @@ o **Modo Desktop**.
 
 1. Feche Elden Ring e Easy Anti-Cheat.
 2. Extraia todo o conteúdo de `ERPT-BR-v0.9.7-Linux-x86_64.tar.gz` para uma
-   pasta em uma unidade Linux `ext4`.
+   pasta nova e vazia em uma unidade Linux `ext4`. Não extraia por cima de uma
+   versão anterior.
 3. Execute `ERPT-BR.sh` pelo gerenciador de arquivos ou, em um terminal aberto
    na pasta extraída, use `./ERPT-BR.sh`.
 4. Confirme a pasta `ELDEN RING/Game` detectada ou selecione-a manualmente.
@@ -72,20 +76,21 @@ NTFS, exFAT ou btrfs ainda não são prometidas sem testes específicos.
 
 ## Modo online
 
-O payload de áudio mantido pela 0.9.7 foi testado no Windows em uma sessão real
-na 0.9.4, iniciada normalmente pela Steam, com Easy Anti-Cheat e conexão online
-ativos. O teste concluiu com sucesso e os sons de clique permaneceram
-funcionando. As versões 0.9.5, 0.9.6 e 0.9.7 não alteram esse áudio. O patcher
-não desativa nem modifica o EAC, não injeta bibliotecas e não muda a forma de
-iniciar o jogo. Esse teste não valida automaticamente o novo ambiente
-Linux/Proton; nele, o modo online continua sem promessa até haver teste físico
-reproduzível.
+O payload que serviu de base para a 0.9.7 foi testado no Windows em uma sessão
+real na 0.9.4, iniciada normalmente pela Steam, com Easy Anti-Cheat e conexão
+online ativos. O teste concluiu com sucesso e os sons de clique permaneceram
+funcionando. A 0.9.7 difere somente por manter no vanilla o efeito não verbal da
+animação da Sellen; essa mitigação ainda precisa de confirmação dentro da missão.
+O patcher não desativa nem modifica o EAC, não injeta bibliotecas e não muda a
+forma de iniciar o jogo. O teste anterior também não valida automaticamente o
+novo ambiente Linux/Proton; nele, o modo online continua sem promessa até haver
+teste físico reproduzível.
 
 O método direto altera dados dentro dos BDTs, mas não regrava nem reassina os
-índices BHD. Assim, 8.973 recursos modificados não correspondem mais aos hashes
-salted originais. O instalador aceita somente as divergências exatas do plano e
-do payload autenticados; qualquer diferença adicional é recusada. A sessão
-online bem-sucedida não remove essa limitação técnica.
+índices BHD. Os recursos modificados deixam de corresponder aos hashes salted
+originais. O instalador aceita somente as divergências exatas do plano e do
+payload autenticados; qualquer diferença adicional é recusada. A sessão online
+bem-sucedida não remove essa limitação técnica.
 
 Esse resultado comprova a versão e a sessão testadas; ele não representa
 garantia de risco zero nem de compatibilidade com futuras atualizações do jogo,
@@ -106,8 +111,9 @@ do manifesto, por si só, **não bloqueia a instalação da dublagem**.
 - runtime Astral `python-build-standalone` 20260924 com CPython 3.13.15 fixado;
 - dependências Linux incluídas e instaladas localmente em modo offline;
 - nenhuma exigência de Python do sistema, `sudo` ou rede na primeira execução;
-- mesmas validações do perfil real 1.17.1 e o mesmo payload autenticado da
-  0.9.6.
+- mesmas validações do perfil real 1.17.1;
+- mitigação conservadora do bug relatado na missão da Sellen: o efeito não verbal
+  `553755359.wem` permanece original, sem remover nenhuma fala dublada.
 
 ## O que mudou na 0.9.6
 
@@ -139,10 +145,10 @@ do manifesto, por si só, **não bloqueia a instalação da dublagem**.
 - validação do jogo repetida imediatamente antes de qualquer gravação;
 - instalação de um clique sem executável próprio do projeto.
 
-O payload autenticado contém 9.241 arquivos: 8.969 WEMs e 272 aliases BNK,
+O payload autenticado contém 9.240 arquivos: 8.968 WEMs e 272 aliases BNK,
 correspondentes a 136 bancos físicos reconstruídos. A árvore descompactada
-possui 605.706.607 bytes e SHA-256 canônico
-`8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb`.
+possui 605.607.009 bytes e SHA-256 canônico
+`e97467e8ebbd1da87be96a44e4a2ee5694cd41c0bf592159b0570258d0b8460e`.
 
 ## Quem usou 0.9.1 ou 0.9.2
 

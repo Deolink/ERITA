@@ -26,10 +26,11 @@ sidecars não possuem manifesto nem hash do build.
 ## Procedimento seguro
 
 1. Feche Elden Ring e Easy Anti-Cheat.
-2. No Windows, baixe `ERPT-BR-v0.9.7-Windows.zip` e extraia o ZIP inteiro. No
+2. No Windows, baixe `ERPT-BR-v0.9.7-Windows.zip` e extraia o ZIP inteiro em uma
+   pasta nova e vazia, sem reutilizar a pasta de uma versão anterior. No
    Linux x86_64 ou Steam Deck em Modo Desktop, baixe
-   `ERPT-BR-v0.9.7-Linux-x86_64.tar.gz` e extraia todo o arquivo em uma unidade
-   `ext4`.
+   `ERPT-BR-v0.9.7-Linux-x86_64.tar.gz` e extraia todo o arquivo em outra pasta
+   nova e vazia, localizada em uma unidade `ext4`.
 3. Abra `ERPT-BR.cmd` no Windows ou `ERPT-BR.sh` no Linux e clique em
    **Corrigir áudio (restaurar)** se houver um backup transacional válido das
    versões 0.9.x no mesmo sistema.

@@ -179,6 +179,24 @@ def _patch_modules(
 
 
 class LinuxReleaseTests(unittest.TestCase):
+    def test_sellen_vanilla_guard_rejects_every_numeric_wem_alias(self) -> None:
+        aliases = (
+            "enus/wem/55/553755359.wem",
+            "553755359.wem",
+            "wem/55/553755359.WEM",
+            "foo/553755359.wem",
+        )
+        for relative in aliases:
+            with self.subTest(relative=relative):
+                self.assertTrue(build_linux_release._is_sellen_vanilla_wem(relative))
+                self.assertTrue(verify_linux_release._is_sellen_vanilla_wem(relative))
+        self.assertFalse(
+            build_linux_release._is_sellen_vanilla_wem("553755359.bnk")
+        )
+        self.assertFalse(
+            verify_linux_release._is_sellen_vanilla_wem("553755360.wem")
+        )
+
     def test_final_constants_pin_linux_portable_release(self) -> None:
         self.assertEqual(build_linux_release.FINAL_VERSION, "v0.9.7")
         self.assertEqual(

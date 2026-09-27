@@ -69,12 +69,13 @@ RUNTIME_MAX_MEMBERS = 10_000
 RUNTIME_MAX_TOTAL_SIZE = 256 * 1024 * 1024
 RUNTIME_MAX_MEMBER_SIZE = 64 * 1024 * 1024
 
-PAYLOAD_TREE_SHA256 = "8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb"
-PAYLOAD_FILE_COUNT = 9_241
-PAYLOAD_WEM_COUNT = 8_969
+PAYLOAD_TREE_SHA256 = "e97467e8ebbd1da87be96a44e4a2ee5694cd41c0bf592159b0570258d0b8460e"
+PAYLOAD_FILE_COUNT = 9_240
+PAYLOAD_WEM_COUNT = 8_968
 PAYLOAD_BNK_COUNT = 272
-PAYLOAD_UNCOMPRESSED_SIZE = 605_706_607
+PAYLOAD_UNCOMPRESSED_SIZE = 605_607_009
 PAYLOAD_MAX_FILE_SIZE = 74_956_066
+SELLEN_VANILLA_WEM_ID = "553755359"
 
 ARCHIVE_MTIME = 1_577_836_800
 STREAM_CHUNK_SIZE = 1024 * 1024
@@ -135,6 +136,11 @@ def _safe_payload_relative(relative: str) -> str:
     if PurePosixPath(relative).suffix.casefold() not in {".wem", ".bnk"}:
         raise SystemExit(f"Extensao inesperada em patch_data/: {relative!r}")
     return relative
+
+
+def _is_sellen_vanilla_wem(relative: str) -> bool:
+    path = PurePosixPath(relative)
+    return path.suffix.casefold() == ".wem" and path.stem == SELLEN_VANILLA_WEM_ID
 
 
 def _canonical_key(name: str) -> tuple[str, str]:
@@ -496,6 +502,11 @@ def verify(path: str | Path) -> None:
                             payload_relative = _safe_payload_relative(
                                 relative.removeprefix("patch_data/")
                             )
+                            if _is_sellen_vanilla_wem(payload_relative):
+                                raise SystemExit(
+                                    "O WEM não verbal da animação da Sellen deve "
+                                    "permanecer vanilla."
+                                )
                             if info.size < 0 or info.size > PAYLOAD_MAX_FILE_SIZE:
                                 raise SystemExit(f"Audio grande demais: {payload_relative!r}")
                             payload_count += 1

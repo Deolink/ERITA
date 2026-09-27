@@ -53,12 +53,13 @@ WHEEL_SHA256 = {
 }
 FINAL_VERSION = "v0.9.7"
 FINAL_ARCHIVE_NAME = "ERPT-BR-v0.9.7-Windows.zip"
-PAYLOAD_TREE_SHA256 = "8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb"
-PAYLOAD_FILE_COUNT = 9_241
-PAYLOAD_WEM_COUNT = 8_969
+PAYLOAD_TREE_SHA256 = "e97467e8ebbd1da87be96a44e4a2ee5694cd41c0bf592159b0570258d0b8460e"
+PAYLOAD_FILE_COUNT = 9_240
+PAYLOAD_WEM_COUNT = 8_968
 PAYLOAD_BNK_COUNT = 272
-PAYLOAD_UNCOMPRESSED_SIZE = 605_706_607
+PAYLOAD_UNCOMPRESSED_SIZE = 605_607_009
 PAYLOAD_MAX_FILE_SIZE = 74_956_066
+SELLEN_VANILLA_WEM_ID = "553755359"
 STREAM_CHUNK_SIZE = 1024 * 1024
 ARCHIVE_TIMESTAMP = (2020, 1, 1, 0, 0, 0)
 
@@ -146,6 +147,11 @@ def _safe_payload_relative(name: str) -> str:
     return relative
 
 
+def _is_sellen_vanilla_wem(relative: str) -> bool:
+    path = PurePosixPath(relative)
+    return path.suffix.casefold() == ".wem" and path.stem == SELLEN_VANILLA_WEM_ID
+
+
 def _verify_flat_payload(
     archive: zipfile.ZipFile,
     entries: list[tuple[str, zipfile.ZipInfo]],
@@ -178,6 +184,10 @@ def _verify_flat_payload(
             checked_relative = _safe_payload_relative(f"patch_data/{relative}")
             if checked_relative != relative:
                 raise SystemExit(f"Caminho divergente no payload: {relative!r}")
+            if _is_sellen_vanilla_wem(relative):
+                raise SystemExit(
+                    "O WEM não verbal da animação da Sellen deve permanecer vanilla."
+                )
             canonical = unicodedata.normalize("NFC", relative).casefold()
             if canonical in seen:
                 raise SystemExit(f"Nome duplicado em patch_data/: {relative!r}")

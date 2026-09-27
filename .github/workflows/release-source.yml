@@ -99,8 +99,8 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          $stagingTag = "v0.9.4-rc.1"
-          $stagingAsset = "patch_data_v094_rc1_wwise135_v2.zip"
+          $stagingTag = "v0.9.7-rc.1"
+          $stagingAsset = "patch_data_v097.zip"
           New-Item -ItemType Directory -Force payload-staging | Out-Null
           try {
             $staging = gh release view $stagingTag `
@@ -121,11 +121,11 @@ jobs:
             throw "Pre-requisito ausente: asset de staging $stagingTag/$stagingAsset"
           }
           $item = Get-Item -LiteralPath $payload
-          if ($item.Length -ne 588468447) {
+          if ($item.Length -ne 588370781) {
             throw "Tamanho do payload de staging divergiu: $($item.Length)"
           }
           $hash = (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne "430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680") {
+          if ($hash -ne "873a432f1f1a8a42fca0aa71610e019563b79da3772656c48280b31a80a858a6") {
             throw "SHA-256 do payload de staging divergiu: $hash"
           }
 
@@ -138,7 +138,7 @@ jobs:
           python tools/build_source_release.py `
             --version "${{ github.ref_name }}" `
             --wheelhouse wheelhouse `
-            --payload "payload-staging/patch_data_v094_rc1_wwise135_v2.zip" `
+            --payload "payload-staging/patch_data_v097.zip" `
             --output $archive
           python tools/verify_source_release.py $archive
           $item = Get-Item $archive
@@ -248,8 +248,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          staging_tag="v0.9.4-rc.1"
-          staging_asset="patch_data_v094_rc1_wwise135_v2.zip"
+          staging_tag="v0.9.7-rc.1"
+          staging_asset="patch_data_v097.zip"
           mkdir -p payload-staging
           staging_json="$(gh release view "$staging_tag" \
             --repo "${{ github.repository }}" \
@@ -263,9 +263,9 @@ jobs:
             --dir payload-staging
           payload="payload-staging/$staging_asset"
           test -f "$payload"
-          test "$(stat -c '%s' "$payload")" = "588468447"
+          test "$(stat -c '%s' "$payload")" = "588370781"
           test "$(sha256sum "$payload" | cut -d' ' -f1)" = \
-            "430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680"
+            "873a432f1f1a8a42fca0aa71610e019563b79da3772656c48280b31a80a858a6"
 
       - name: Build and verify final Linux archive
         run: |
@@ -277,7 +277,7 @@ jobs:
             --version "$GITHUB_REF_NAME" \
             --wheelhouse wheelhouse \
             --runtime "runtime/$runtime_name" \
-            --payload "payload-staging/patch_data_v094_rc1_wwise135_v2.zip" \
+            --payload "payload-staging/patch_data_v097.zip" \
             --output "$archive"
           python tools/verify_linux_release.py "$archive"
           hash="$(sha256sum "$archive" | cut -d' ' -f1)"
@@ -380,7 +380,7 @@ jobs:
           linux_archive="dist/$linux_name"
           notes="docs/RELEASE-0.9.7.md"
           tag="v0.9.7"
-          title="ERPT-BR v0.9.7 — Suporte inicial a Linux e Steam Deck"
+          title="ERPT-BR v0.9.7 — Linux, Steam Deck e mitigação para a Sellen"
           test -f "$windows_archive"
           test -f "$linux_archive"
           test -f "$notes"
