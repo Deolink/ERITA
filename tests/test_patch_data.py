@@ -37,7 +37,11 @@ class CoreFilesystemPortabilityTests(unittest.TestCase):
             ):
                 self.assertEqual(
                     patch_data._default_cache_directory(),
-                    (xdg_cache / "ERPT-BR" / "payload").resolve(),
+                    Path(
+                        os.path.abspath(
+                            os.fspath(xdg_cache / "ERPT-BR" / "payload")
+                        )
+                    ),
                 )
 
     def test_rename_noreplace_dispatches_to_linux_and_fsyncs_parent(self) -> None:
@@ -63,7 +67,9 @@ class CoreFilesystemPortabilityTests(unittest.TestCase):
                 patch_data._rename_noreplace(source, destination)
 
             rename_mock.assert_called_once()
-            fsync_mock.assert_called_once_with(root.resolve())
+            fsync_mock.assert_called_once_with(
+                Path(os.path.abspath(os.fspath(root)))
+            )
             self.assertFalse(source.exists())
             self.assertEqual(destination.read_bytes(), b"data")
 
@@ -820,14 +826,16 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
         target = cache / "patch_data"
         previous = cache / (".patch_data.old-" + "6" * 32)
         self.write_valid_payload(previous)
-        real_rename = patch_data.os.rename
+        real_rename = patch_data._rename_noreplace
 
         def fail_recovery(source, destination):
             if Path(source) == previous and Path(destination) == target:
                 raise PermissionError("locked")
             return real_rename(source, destination)
 
-        with mock.patch.object(patch_data.os, "rename", side_effect=fail_recovery):
+        with mock.patch.object(
+            patch_data, "_rename_noreplace", side_effect=fail_recovery
+        ):
             with self.assertRaisesRegex(patch_data.PatchDataError, "atomicamente"):
                 patch_data.ensure_patch_data(
                     self.root / "release",
@@ -845,7 +853,7 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
         previous = cache / (".patch_data.old-" + "7" * 32)
         self.write_valid_payload(previous)
         external = b"EXTERNAL"
-        real_rename = patch_data.os.rename
+        real_rename = patch_data._rename_noreplace
         injected = False
 
         def inject_target(source, destination):
@@ -855,7 +863,9 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
                 injected = True
             return real_rename(source, destination)
 
-        with mock.patch.object(patch_data.os, "rename", side_effect=inject_target):
+        with mock.patch.object(
+            patch_data, "_rename_noreplace", side_effect=inject_target
+        ):
             with self.assertRaisesRegex(patch_data.PatchDataError, "preservado"):
                 patch_data.ensure_patch_data(
                     self.root / "release",
@@ -876,7 +886,7 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
         destination.mkdir()
         (destination / "old.bin").write_bytes(b"old")
         external = b"EXTERNAL-PUBLISH"
-        real_rename = patch_data.os.rename
+        real_rename = patch_data._rename_noreplace
         injected = False
 
         def inject_publish(source, target):
@@ -886,7 +896,9 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
                 injected = True
             return real_rename(source, target)
 
-        with mock.patch.object(patch_data.os, "rename", side_effect=inject_publish):
+        with mock.patch.object(
+            patch_data, "_rename_noreplace", side_effect=inject_publish
+        ):
             with self.assertRaises(patch_data.PatchDataError):
                 patch_data._replace_directory_atomically(staged, destination)
 
@@ -998,7 +1010,7 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
     def test_download_preserves_destination_created_during_publish(self) -> None:
         destination = self.root / "cache" / self.spec.archive_name
         external = b"EXTERNAL-RACE"
-        real_rename = patch_data.os.rename
+        real_rename = patch_data._rename_noreplace
         injected = False
 
         def inject_destination(source, target):
@@ -1008,7 +1020,9 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
                 injected = True
             return real_rename(source, target)
 
-        with mock.patch.object(patch_data.os, "rename", side_effect=inject_destination):
+        with mock.patch.object(
+            patch_data, "_rename_noreplace", side_effect=inject_destination
+        ):
             with self.assertRaisesRegex(patch_data.PayloadDownloadError, "preservado"):
                 patch_data.download_archive(
                     destination,
@@ -1052,6 +1066,60 @@ class DownloadAndDiscoveryTests(unittest.TestCase):
         self.assertIsNotNone(swapped_path)
         assert swapped_path is not None
         self.assertEqual(swapped_path.read_bytes(), b"UNAUTHENTICATED")
+
+    def test_linux_download_keeps_original_inode_open_through_publication(
+        self,
+    ) -> None:
+        destination = self.root / "cache" / self.spec.archive_name
+        guard_fd = 4242
+
+        with (
+            mock.patch.object(patch_data.sys, "platform", "linux"),
+            mock.patch.object(
+                patch_data.os, "dup", return_value=guard_fd
+            ) as duplicate,
+            mock.patch.object(patch_data.os, "close") as close,
+        ):
+            result = patch_data.download_archive(
+                destination,
+                spec=self.spec,
+                opener=self.opener,
+            )
+
+        self.assertEqual(result, destination)
+        duplicate.assert_called_once()
+        close.assert_called_once_with(guard_fd)
+
+    def test_download_rehashes_in_place_tamper_immediately_before_publish(
+        self,
+    ) -> None:
+        destination = self.root / "cache" / self.spec.archive_name
+        real_validate = patch_data.validate_archive
+        tampered_path: Path | None = None
+
+        def validate_then_tamper(path, *, spec, progress=None):
+            nonlocal tampered_path
+            result = real_validate(path, spec=spec, progress=progress)
+            tampered_path = Path(path)
+            tampered_path.write_bytes(b"X" * len(self.archive_bytes))
+            return result
+
+        with mock.patch.object(
+            patch_data, "validate_archive", side_effect=validate_then_tamper
+        ):
+            with self.assertRaisesRegex(
+                patch_data.PayloadDownloadError, "mudou|publicacao"
+            ):
+                patch_data.download_archive(
+                    destination,
+                    spec=self.spec,
+                    opener=self.opener,
+                )
+
+        self.assertFalse(destination.exists())
+        self.assertIsNotNone(tampered_path)
+        assert tampered_path is not None
+        self.assertFalse(tampered_path.exists())
 
     def test_download_rejects_non_https_redirect_and_removes_part(self) -> None:
         destination = self.root / "payload.zip"

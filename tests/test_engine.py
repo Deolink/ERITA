@@ -72,7 +72,9 @@ class CoreFilesystemPortabilityTests(unittest.TestCase):
                 engine._rename_noreplace(source, destination)
 
             rename_mock.assert_called_once()
-            fsync_mock.assert_called_once_with(root.resolve())
+            fsync_mock.assert_called_once_with(
+                Path(os.path.abspath(os.fspath(root)))
+            )
             self.assertFalse(source.exists())
             self.assertEqual(destination.read_bytes(), b"data")
 
@@ -1586,7 +1588,7 @@ class PatchEngineTests(unittest.TestCase):
             destination = root / ("a" * 64)
             source.mkdir()
             (source / "manifest.json").write_text("{}", encoding="utf-8")
-            real_rename = engine.os.rename
+            real_rename = engine._rename_noreplace
 
             def create_external_then_rename(src: Path, dst: Path) -> None:
                 destination.mkdir()
@@ -1594,7 +1596,9 @@ class PatchEngineTests(unittest.TestCase):
                 real_rename(src, dst)
 
             with mock.patch.object(
-                engine.os, "rename", side_effect=create_external_then_rename
+                engine,
+                "_rename_noreplace",
+                side_effect=create_external_then_rename,
             ):
                 with self.assertRaises(engine.BackupError):
                     engine._rename_directory_without_replace(source, destination)
@@ -2331,7 +2335,7 @@ class PatchEngineTests(unittest.TestCase):
                 "_publish_without_replace",
                 side_effect=swap_rollback_during_publish,
             ):
-                with self.assertRaisesRegex(engine.BackupError, "trocad"):
+                with self.assertRaisesRegex(engine.BackupError, "trocad|mudou"):
                     fresh.load_archives()
 
             self.assertTrue(swapped)

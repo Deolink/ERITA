@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -909,7 +910,7 @@ class GuiIntegrationTests(unittest.TestCase):
         )
 
         snapshot = patcher_gui.PatcherApp._diagnostic_snapshot(
-            app, r".\selected-game"
+            app, os.path.join(".", "selected-game")
         )
 
         self.assertEqual(snapshot["detected_build_id"], "11111111")

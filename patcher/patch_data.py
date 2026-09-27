@@ -1320,6 +1320,7 @@ def download_archive(
     )
     _log(log, f"Baixando dados fixados de {spec.url}")
     partial_identity: tuple[int, int] | None = None
+    partial_guard_fd: int | None = None
     try:
         digest = hashlib.sha256()
         downloaded = 0
@@ -1354,6 +1355,12 @@ def download_archive(
             with partial.open("xb") as stream:
                 opened = os.fstat(stream.fileno())
                 partial_identity = (opened.st_dev, opened.st_ino)
+                if sys.platform.startswith("linux"):
+                    # Keep the original inode allocated even if an attacker
+                    # unlinks the random pathname. Without this guard Linux may
+                    # immediately reuse the same inode number, defeating a
+                    # later (st_dev, st_ino) ownership comparison.
+                    partial_guard_fd = os.dup(stream.fileno())
                 while True:
                     chunk = response.read(DOWNLOAD_CHUNK_SIZE)
                     if not chunk:
@@ -1407,11 +1414,27 @@ def download_archive(
                 raise PatchDataError(
                     "A identidade do download privado nao foi capturada."
                 )
-            _move_owned_regular_without_replace(partial, target, partial_identity)
-            if _sha256_owned_regular(target, partial_identity) != spec.sha256:
+            final_private_digest = _sha256_owned_regular(partial, partial_identity)
+            if final_private_digest != spec.sha256:
                 raise PatchDataError(
-                    f"O download publicado nao corresponde ao SHA-256 fixado: '{target}'."
+                    "O download privado mudou depois da validacao e antes da "
+                    f"publicacao: '{partial}'."
                 )
+            try:
+                _move_owned_regular_without_replace(
+                    partial, target, partial_identity
+                )
+                if _sha256_owned_regular(target, partial_identity) != spec.sha256:
+                    raise PatchDataError(
+                        "O download publicado nao corresponde ao SHA-256 "
+                        f"fixado: '{target}'."
+                    )
+            except PatchDataError:
+                # With the Linux guard still open, an unlinked original inode
+                # cannot be recycled into a racing target. This removes only
+                # the exact scratch inode we created; external entries survive.
+                _remove_owned_regular_file(target, partial_identity)
+                raise
         except PatchDataError as exc:
             raise PayloadDownloadError(
                 "O destino do download apareceu durante a publicacao e foi "
@@ -1434,6 +1457,12 @@ def download_archive(
             _remove_owned_regular_file(partial, partial_identity)
         except (OSError, PatchDataError):
             pass
+        finally:
+            if partial_guard_fd is not None:
+                try:
+                    os.close(partial_guard_fd)
+                except OSError:
+                    pass
 
 
 def _unique_paths(paths: Iterable[Path]) -> Iterable[Path]:
