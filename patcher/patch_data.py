@@ -9,7 +9,9 @@ still opt into the HTTPS download path used by older releases and tests.
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass
+import errno
 import hashlib
 import json
 import os
@@ -26,16 +28,16 @@ import uuid
 import zipfile
 
 
-PAYLOAD_VERSION = "v0.9.4"
-PAYLOAD_ARCHIVE_NAME = "patch_data_v094.zip"
+PAYLOAD_VERSION = "v0.9.7"
+PAYLOAD_ARCHIVE_NAME = "patch_data_v097.zip"
 PAYLOAD_URL: str | None = None
-PAYLOAD_ARCHIVE_SIZE = 588_468_447
-PAYLOAD_SHA256 = "430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680"
-PAYLOAD_TREE_SHA256 = "8544e551832c929eecad0cf9898204fd673bd4a37a0a6f37433865afbb3556cb"
-PAYLOAD_WEM_COUNT = 8_969
+PAYLOAD_ARCHIVE_SIZE = 588_370_781
+PAYLOAD_SHA256 = "873a432f1f1a8a42fca0aa71610e019563b79da3772656c48280b31a80a858a6"
+PAYLOAD_TREE_SHA256 = "e97467e8ebbd1da87be96a44e4a2ee5694cd41c0bf592159b0570258d0b8460e"
+PAYLOAD_WEM_COUNT = 8_968
 PAYLOAD_BNK_COUNT = 272
-PAYLOAD_FILE_COUNT = 9_241
-PAYLOAD_UNCOMPRESSED_SIZE = 605_706_607
+PAYLOAD_FILE_COUNT = 9_240
+PAYLOAD_UNCOMPRESSED_SIZE = 605_607_009
 PAYLOAD_MAX_FILE_SIZE = 74_956_066
 
 MARKER_FILENAME = ".erita-payload.json"
@@ -95,6 +97,79 @@ def _is_link_or_reparse(path: Path) -> bool:
 
 def _absolute_without_resolving(path: str | os.PathLike[str]) -> Path:
     return Path(os.path.abspath(os.fspath(path)))
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _linux_rename_noreplace(source: Path, destination: Path) -> None:
+    """Call Linux ``renameat2(RENAME_NOREPLACE)`` or fail before mutation."""
+
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = libc.renameat2
+    except (AttributeError, OSError) as exc:
+        raise OSError(
+            errno.ENOTSUP,
+            "renameat2(RENAME_NOREPLACE) non è disponibile su questo Linux",
+            str(destination),
+        ) from exc
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    result = renameat2(
+        -100,  # AT_FDCWD
+        os.fsencode(source),
+        -100,  # AT_FDCWD
+        os.fsencode(destination),
+        1,  # RENAME_NOREPLACE
+    )
+    if result != 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(
+            error_number,
+            os.strerror(error_number),
+            str(destination),
+        )
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist directory metadata on POSIX; Windows has different semantics."""
+
+    if _is_windows():
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _rename_noreplace(source: Path, destination: Path) -> None:
+    """Atomically rename without replacing a racing destination."""
+
+    source = _absolute_without_resolving(source)
+    destination = _absolute_without_resolving(destination)
+    if _is_windows():
+        os.rename(source, destination)
+    elif sys.platform.startswith("linux"):
+        _linux_rename_noreplace(source, destination)
+    else:
+        raise OSError(
+            errno.ENOTSUP,
+            f"rename atomico senza sostituzione non supportato su {sys.platform}",
+            str(destination),
+        )
+    for parent in dict.fromkeys((source.parent, destination.parent)):
+        _fsync_directory(parent)
 
 
 def _ensure_safe_directory_tree(path: str | os.PathLike[str], *, label: str) -> Path:
@@ -942,6 +1017,7 @@ def _write_marker(directory: Path, spec: PayloadSpec) -> None:
                 f"Marcatore temporaneo sostituito: '{partial}'."
             )
         os.replace(partial, marker)
+        _fsync_directory(marker.parent)
     except FileExistsError as exc:
         raise PayloadExtractionError(
             f"Lo scratch del marcatore esiste già ed è stato preservato: '{partial}'."
@@ -1089,7 +1165,7 @@ def _move_path_without_replace(source: Path, destination: Path) -> None:
             f"La destinazione è riapparsa durante lo scambio ed è stata preservata: '{destination}'."
         )
     try:
-        os.rename(source, destination)
+        _rename_noreplace(source, destination)
     except FileExistsError as exc:
         raise PatchDataError(
             f"La destinazione è riapparsa durante lo scambio ed è stata preservata: '{destination}'."
@@ -1288,6 +1364,7 @@ def download_archive(
     )
     _log(log, f"Scaricamento dei dati fissati da {spec.url}")
     partial_identity: tuple[int, int] | None = None
+    partial_guard_fd: int | None = None
     try:
         digest = hashlib.sha256()
         downloaded = 0
@@ -1322,6 +1399,12 @@ def download_archive(
             with partial.open("xb") as stream:
                 opened = os.fstat(stream.fileno())
                 partial_identity = (opened.st_dev, opened.st_ino)
+                if sys.platform.startswith("linux"):
+                    # Keep the original inode allocated even if an attacker
+                    # unlinks the random pathname. Without this guard Linux may
+                    # immediately reuse the same inode number, defeating a
+                    # later (st_dev, st_ino) ownership comparison.
+                    partial_guard_fd = os.dup(stream.fileno())
                 while True:
                     chunk = response.read(DOWNLOAD_CHUNK_SIZE)
                     if not chunk:
@@ -1375,11 +1458,27 @@ def download_archive(
                 raise PatchDataError(
                     "L'identità del download privato non è stata acquisita."
                 )
-            _move_owned_regular_without_replace(partial, target, partial_identity)
-            if _sha256_owned_regular(target, partial_identity) != spec.sha256:
+            final_private_digest = _sha256_owned_regular(partial, partial_identity)
+            if final_private_digest != spec.sha256:
                 raise PatchDataError(
-                    f"Il download pubblicato non corrisponde allo SHA-256 fissato: '{target}'."
+                    "Il download privato è cambiato dopo la convalida e prima della "
+                    f"pubblicazione: '{partial}'."
                 )
+            try:
+                _move_owned_regular_without_replace(
+                    partial, target, partial_identity
+                )
+                if _sha256_owned_regular(target, partial_identity) != spec.sha256:
+                    raise PatchDataError(
+                        "Il download pubblicato non corrisponde allo SHA-256 "
+                        f"fissato: '{target}'."
+                    )
+            except PatchDataError:
+                # With the Linux guard still open, an unlinked original inode
+                # cannot be recycled into a racing target. This removes only
+                # the exact scratch inode we created; external entries survive.
+                _remove_owned_regular_file(target, partial_identity)
+                raise
         except PatchDataError as exc:
             raise PayloadDownloadError(
                 "La destinazione del download è apparsa durante la pubblicazione ed è stata "
@@ -1402,6 +1501,12 @@ def download_archive(
             _remove_owned_regular_file(partial, partial_identity)
         except (OSError, PatchDataError):
             pass
+        finally:
+            if partial_guard_fd is not None:
+                try:
+                    os.close(partial_guard_fd)
+                except OSError:
+                    pass
 
 
 def _unique_paths(paths: Iterable[Path]) -> Iterable[Path]:
@@ -1594,12 +1699,18 @@ def _recover_payload_cache_unlocked(
 
 
 def _default_cache_directory() -> Path:
-    local_data = os.environ.get("LOCALAPPDATA")
-    if local_data:
-        return _absolute_without_resolving(Path(local_data) / "ERITA" / "payload")
-    return _absolute_without_resolving(
-        Path.home() / ".local" / "share" / "ERITA" / "payload"
-    )
+    if _is_windows():
+        local_data = os.environ.get("LOCALAPPDATA")
+        root = Path(local_data) if local_data else Path.home() / "AppData" / "Local"
+    else:
+        configured = os.environ.get("XDG_CACHE_HOME")
+        candidate = Path(configured).expanduser() if configured else None
+        root = (
+            candidate
+            if candidate is not None and candidate.is_absolute()
+            else Path.home() / ".cache"
+        )
+    return _absolute_without_resolving(root / "ERITA" / "payload")
 
 
 def _ensure_patch_data_unlocked(

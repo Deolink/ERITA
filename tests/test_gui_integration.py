@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -10,39 +11,105 @@ from patcher import patcher_gui
 
 
 class GuiIntegrationTests(unittest.TestCase):
-    def test_v095_production_installation_is_enabled(self) -> None:
-        self.assertEqual(patcher_gui.PATCHER_VERSION, "0.9.5")
+    def test_v097_production_installation_is_enabled(self) -> None:
+        self.assertEqual(patcher_gui.PATCHER_VERSION, "0.9.7")
         self.assertFalse(patcher_gui.INSTALLATION_SUSPENDED)
 
-    def test_startup_never_labels_an_unsupported_build_as_ready(self) -> None:
+    def test_success_message_never_treats_appmanifest_as_online_proof(self) -> None:
+        message = patcher_gui.INSTALLATION_SUCCESS_MESSAGE
+
+        self.assertIn("appmanifest è solo informativo", message)
+        self.assertIn("conferma che Steam riconosca", message)
+        self.assertNotIn("online confermato", message.casefold())
+
+    def test_startup_does_not_block_a_conflicting_optional_manifest(self) -> None:
         app = mock.Mock()
         info = patcher_gui.SteamBuildInfo("99999999", "identified")
 
-        patcher_gui.PatcherApp._finish_startup_status(app, info)
+        with mock.patch.object(
+            patcher_gui,
+            "validate_game_archive_profile",
+            return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+        ):
+            patcher_gui.PatcherApp._finish_startup_status(
+                app, Path("selected-game"), info
+            )
 
         app._set_stage.assert_called_once_with(
-            "unsupported_build",
-            "Versione non supportata (99999999) [ERITA-COMPAT-001]; "
-            "apri Diagnostica per copiare il rapporto.",
+            "ready",
+            "Preverifica dei file completata; manifesto facoltativo, "
+            "Steam e online non confermati. Pronto per la convalida completa.",
             finished=True,
         )
-        error = app._record_error.call_args.args[0]
-        self.assertIsInstance(error, patcher_gui.UnsupportedBuildError)
-        self.assertIs(error.build_info, info)
+        app._record_error.assert_not_called()
+
+    def test_startup_accepts_authenticated_files_when_manifest_is_missing(
+        self,
+    ) -> None:
+        app = mock.Mock()
+        info = patcher_gui.SteamBuildInfo(None, "manifest_missing")
+
+        with mock.patch.object(
+            patcher_gui,
+            "validate_game_archive_profile",
+            return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+        ):
+            patcher_gui.PatcherApp._finish_startup_status(
+                app, Path("selected-game"), info
+            )
+
+        app._set_stage.assert_called_once_with(
+            "ready",
+            "Preverifica dei file completata; manifesto facoltativo, "
+            "Steam e online non confermati. Pronto per la convalida completa.",
+            finished=True,
+        )
+        app._record_error.assert_not_called()
 
     def test_startup_labels_only_the_pinned_build_as_ready(self) -> None:
         app = mock.Mock()
         info = patcher_gui.SteamBuildInfo("25080141", "identified")
 
         with mock.patch.object(patcher_gui, "INSTALLATION_SUSPENDED", False):
-            patcher_gui.PatcherApp._finish_startup_status(app, info)
+            with mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+            ):
+                patcher_gui.PatcherApp._finish_startup_status(
+                    app, Path("selected-game"), info
+                )
 
         app._record_error.assert_not_called()
         app._set_stage.assert_called_once_with(
             "ready",
-            "Gioco compatibile rilevato; pronto per l'installazione.",
+            "Preverifica dei file completata; il manifesto indica il BuildID "
+            "atteso, ma non conferma Steam e online. Pronto per la convalida completa.",
             finished=True,
         )
+
+    def test_startup_rejects_real_files_outside_the_profile(self) -> None:
+        app = mock.Mock()
+        info = patcher_gui.SteamBuildInfo("25080141", "identified")
+
+        with mock.patch.object(
+            patcher_gui,
+            "validate_game_archive_profile",
+            side_effect=patcher_gui.CompatibilityError("sd.bhd divergente"),
+        ):
+            patcher_gui.PatcherApp._finish_startup_status(
+                app, Path("selected-game"), info
+            )
+
+        app._set_stage.assert_called_once_with(
+            "game_files_unsupported",
+            "File del gioco non omologati [ERITA-FILES-001]; "
+            "apri Diagnostica per copiare il rapporto.",
+            finished=True,
+        )
+        recorded = app._record_error.call_args.args[0]
+        self.assertIsInstance(recorded, patcher_gui.GameFilesCompatibilityError)
+        self.assertIn("sd.bhd divergente", str(recorded))
 
     @staticmethod
     def _diagnostic_state_stub() -> patcher_gui.PatcherApp:
@@ -131,39 +198,205 @@ class GuiIntegrationTests(unittest.TestCase):
 
         callback.assert_not_called()
 
+    @unittest.skipUnless(
+        patcher_gui.sys.platform == "win32",
+        "Il registro di Steam esiste solo su Windows",
+    )
+    def test_steam_roots_accepts_user_steam_path_without_install_path(self) -> None:
+        import winreg
+
+        key = mock.MagicMock()
+        key.__enter__.return_value = key
+
+        def open_key(hive: object, subkey: str) -> object:
+            if (
+                hive == winreg.HKEY_CURRENT_USER
+                and subkey == r"SOFTWARE\Valve\Steam"
+            ):
+                return key
+            raise FileNotFoundError
+
+        def query_value(_key: object, value_name: str) -> tuple[str, int]:
+            if value_name == "SteamPath":
+                return r"D:\PortableSteam", winreg.REG_SZ
+            raise FileNotFoundError
+
+        with (
+            mock.patch.object(winreg, "OpenKey", side_effect=open_key),
+            mock.patch.object(winreg, "QueryValueEx", side_effect=query_value),
+        ):
+            roots = patcher_gui._steam_roots()
+
+        self.assertIn(Path(r"D:\PortableSteam"), roots)
+
+    def test_linux_steam_roots_include_xdg_flatpak_and_snap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "HomeWithCase"
+            xdg = Path(temporary) / "XDGData"
+            with (
+                mock.patch.object(patcher_gui.sys, "platform", "linux"),
+                mock.patch.object(patcher_gui.Path, "home", return_value=home),
+                mock.patch.dict(
+                    patcher_gui.os.environ,
+                    {
+                        "XDG_DATA_HOME": str(xdg),
+                        "STEAM_COMPAT_CLIENT_INSTALL_PATH": str(
+                            Path(temporary) / "CompatSteam"
+                        ),
+                    },
+                    clear=True,
+                ),
+            ):
+                roots = patcher_gui._steam_roots()
+
+        self.assertIn(xdg / "Steam", roots)
+        self.assertIn(Path(temporary) / "CompatSteam", roots)
+        self.assertIn(home / ".steam" / "root", roots)
+        self.assertIn(
+            home
+            / ".var"
+            / "app"
+            / "com.valvesoftware.Steam"
+            / ".local"
+            / "share"
+            / "Steam",
+            roots,
+        )
+        self.assertIn(
+            home
+            / "snap"
+            / "steam"
+            / "common"
+            / ".local"
+            / "share"
+            / "Steam",
+            roots,
+        )
+
+    def test_linux_path_keys_preserve_case(self) -> None:
+        with mock.patch.object(patcher_gui.sys, "platform", "linux"):
+            upper = patcher_gui._path_key(Path("Library") / "Steam")
+            lower = patcher_gui._path_key(Path("library") / "steam")
+
+        self.assertNotEqual(upper, lower)
+
+    def test_linux_process_scanner_detects_proton_game_argument(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            proc = Path(temporary)
+            process = proc / "4242"
+            process.mkdir()
+            (process / "comm").write_text("pressure-vessel\n", encoding="utf-8")
+            (process / "cmdline").write_bytes(
+                b"/usr/bin/wine64\0Z:\\steam\\ELDEN RING\\Game\\eldenring.exe\0"
+            )
+            uid = process.stat().st_uid
+            with mock.patch.object(
+                patcher_gui.os,
+                "getuid",
+                return_value=uid,
+                create=True,
+            ):
+                blockers = patcher_gui._linux_running_blockers(proc)
+
+        self.assertIn("Elden Ring", blockers)
+
+    def test_linux_process_scanner_detects_unknown_eac_variant(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            proc = Path(temporary)
+            process = proc / "99"
+            process.mkdir()
+            (process / "comm").write_text(
+                "easyanticheat_custom.exe\n", encoding="utf-8"
+            )
+            (process / "cmdline").write_bytes(b"easyanticheat_custom.exe\0")
+            uid = process.stat().st_uid
+            with mock.patch.object(
+                patcher_gui.os,
+                "getuid",
+                return_value=uid,
+                create=True,
+            ):
+                blockers = patcher_gui._linux_running_blockers(proc)
+
+        self.assertEqual(blockers, ["Easy Anti-Cheat"])
+
+    def test_linux_process_scanner_fails_closed_without_proc(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            mock.patch.object(
+                patcher_gui.os,
+                "getuid",
+                return_value=0,
+                create=True,
+            ),
+            self.assertRaisesRegex(patcher_gui.PatcherError, "consultare /proc"),
+        ):
+            patcher_gui._linux_running_blockers(Path(temporary) / "missing")
+
     def test_reads_and_requires_the_pinned_steam_build(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             steamapps = Path(temporary) / "steamapps"
             game = steamapps / "common" / "ELDEN RING" / "Game"
             game.mkdir(parents=True)
             (steamapps / "appmanifest_1245620.acf").write_text(
-                '"AppState"\n{\n  "buildid"  "25080141"\n}\n',
+                '"AppState"\n{\n  "installdir" "ELDEN RING"\n'
+                '  "buildid"  "25080141"\n}\n',
                 encoding="utf-8",
             )
 
             self.assertEqual(patcher_gui.steam_build_id(game), "25080141")
-            self.assertEqual(patcher_gui.require_supported_build(game), "25080141")
+            with mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+            ):
+                compatibility = patcher_gui.require_supported_build(game)
 
-    def test_rejects_a_different_steam_build(self) -> None:
+            self.assertIn(
+                patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+                compatibility,
+            )
+            self.assertIn("BuildID atteso 25080141", compatibility)
+            self.assertIn("non sono confermati dal manifesto", compatibility)
+
+    def test_different_manifest_build_is_only_an_auxiliary_warning(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             steamapps = Path(temporary) / "steamapps"
             game = steamapps / "common" / "ELDEN RING" / "Game"
             game.mkdir(parents=True)
             (steamapps / "appmanifest_1245620.acf").write_text(
-                '"buildid" "99999999"\n', encoding="utf-8"
+                '"installdir" "ELDEN RING"\n"buildid" "99999999"\n',
+                encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(
-                patcher_gui.UnsupportedBuildError,
-                r"ERITA-COMPAT-001[\s\S]*Nessun file è stato modificato",
-            ) as raised:
-                patcher_gui.require_supported_build(game)
+            with mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+            ):
+                result = patcher_gui.require_supported_build(game)
 
-            self.assertEqual(raised.exception.code, "ERITA-COMPAT-001")
-            self.assertEqual(raised.exception.build_info.build_id, "99999999")
-            self.assertEqual(raised.exception.build_info.status, "identified")
+            self.assertIn("BuildID 99999999", result)
+            self.assertIn("Steam e online non confermati", result)
 
-    def test_missing_manifest_has_an_explicit_detection_status(self) -> None:
+    def test_copied_supported_manifest_cannot_override_wrong_game_files(self) -> None:
+        info = patcher_gui.SteamBuildInfo("25080141", "identified")
+        with (
+            mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                side_effect=patcher_gui.CompatibilityError("sd.bhd divergente"),
+            ),
+            self.assertRaisesRegex(
+                patcher_gui.GameFilesCompatibilityError,
+                r"ERITA-FILES-001[\s\S]*Copiare un appmanifest",
+            ) as raised,
+        ):
+            patcher_gui.require_supported_build(Path("old-game"), info)
+
+        self.assertTrue(raised.exception.before_game_writes)
+
+    def test_missing_manifest_uses_authenticated_local_profile(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             game = (
                 Path(temporary)
@@ -174,20 +407,228 @@ class GuiIntegrationTests(unittest.TestCase):
             )
             game.mkdir(parents=True)
 
-            info = patcher_gui.steam_build_info(game)
+            with mock.patch.object(patcher_gui, "_steam_roots", return_value=[]):
+                info = patcher_gui.steam_build_info(game)
 
             self.assertIsNone(info.build_id)
             self.assertEqual(info.status, "manifest_missing")
-            with self.assertRaisesRegex(
-                patcher_gui.UnsupportedBuildError,
-                "manifesto Steam non trovato",
+            with mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
             ):
-                patcher_gui.require_supported_build(game, info)
+                result = patcher_gui.require_supported_build(game, info)
 
-    def test_install_worker_rejects_build_before_creating_engine(self) -> None:
+            self.assertIn(patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id, result)
+            self.assertIn("Steam e online non confermati", result)
+
+    def test_uses_lexical_library_path_after_game_path_was_resolved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resolved_game = root / "physical" / "Game"
+            resolved_game.mkdir(parents=True)
+            lexical_game = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "common"
+                / "ELDEN RING"
+                / "Game"
+            )
+            lexical_game.mkdir(parents=True)
+            manifest = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "appmanifest_1245620.acf"
+            )
+            manifest.write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(patcher_gui, "_steam_roots", return_value=[]),
+                mock.patch.object(
+                    patcher_gui,
+                    "_same_directory_identity",
+                    side_effect=lambda left, right: (
+                        left == lexical_game and right == resolved_game
+                    ),
+                ),
+            ):
+                info = patcher_gui.steam_build_info(
+                    resolved_game,
+                    game_path_hints=(lexical_game,),
+                )
+
+            self.assertEqual(info, patcher_gui.SteamBuildInfo("25080141", "identified"))
+
+    def test_foreign_path_hint_cannot_authorize_another_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "selected" / "Game"
+            game.mkdir(parents=True)
+            foreign_game = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "common"
+                / "ELDEN RING"
+                / "Game"
+            )
+            foreign_game.mkdir(parents=True)
+            (foreign_game.parents[2] / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(patcher_gui, "_steam_roots", return_value=[]):
+                info = patcher_gui.steam_build_info(
+                    game,
+                    game_path_hints=(foreign_game,),
+                )
+
+            self.assertEqual(
+                info,
+                patcher_gui.SteamBuildInfo(None, "manifest_missing"),
+            )
+
+    def test_directory_identity_check_fails_closed_on_os_error(self) -> None:
+        left = mock.Mock(spec=Path)
+        right = mock.Mock(spec=Path)
+        left.samefile.side_effect = OSError("identity unavailable")
+
+        self.assertFalse(patcher_gui._same_directory_identity(left, right))
+
+    def test_invalid_physical_manifest_does_not_hide_valid_lexical_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "physical" / "common" / "ELDEN RING" / "Game"
+            game.mkdir(parents=True)
+            (root / "physical" / "appmanifest_1245620.acf").write_text(
+                '"buildid" "99999999"\n',
+                encoding="utf-8",
+            )
+            lexical_game = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "common"
+                / "ELDEN RING"
+                / "Game"
+            )
+            lexical_game.mkdir(parents=True)
+            (lexical_game.parents[2] / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            def same_identity(left: Path, right: Path) -> bool:
+                return left == lexical_game and right == game
+
+            with (
+                mock.patch.object(patcher_gui, "_steam_roots", return_value=[]),
+                mock.patch.object(
+                    patcher_gui,
+                    "_same_directory_identity",
+                    side_effect=same_identity,
+                ),
+            ):
+                info = patcher_gui.steam_build_info(
+                    game,
+                    game_path_hints=(lexical_game,),
+                )
+
+            self.assertEqual(
+                info,
+                patcher_gui.SteamBuildInfo("25080141", "identified"),
+            )
+
+    def test_finds_manifest_through_registered_library_for_same_game(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "physical" / "ELDEN RING" / "Game"
+            game.mkdir(parents=True)
+            library = root / "SteamLibrary"
+            steamapps = library / "steamapps"
+            steamapps.mkdir(parents=True)
+            (steamapps / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(
+                    patcher_gui, "_steam_roots", return_value=[library]
+                ),
+                mock.patch.object(
+                    patcher_gui,
+                    "_steam_libraries",
+                    return_value=[library],
+                ),
+                mock.patch.object(
+                    patcher_gui, "_same_directory_identity", return_value=True
+                ) as same_directory,
+            ):
+                info = patcher_gui.steam_build_info(game)
+
+            self.assertEqual(info, patcher_gui.SteamBuildInfo("25080141", "identified"))
+            same_directory.assert_called()
+
+    def test_does_not_borrow_manifest_from_another_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "copied" / "ELDEN RING" / "Game"
+            game.mkdir(parents=True)
+            library = root / "SteamLibrary"
+            steamapps = library / "steamapps"
+            steamapps.mkdir(parents=True)
+            (steamapps / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(
+                    patcher_gui, "_steam_roots", return_value=[library]
+                ),
+                mock.patch.object(
+                    patcher_gui,
+                    "_steam_libraries",
+                    return_value=[library],
+                ),
+                mock.patch.object(
+                    patcher_gui, "_same_directory_identity", return_value=False
+                ),
+            ):
+                info = patcher_gui.steam_build_info(game)
+
+            self.assertIsNone(info.build_id)
+            self.assertEqual(info.status, "manifest_not_linked")
+
+    def test_direct_manifest_must_name_the_selected_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            steamapps = Path(temporary) / "steamapps"
+            selected = steamapps / "common" / "ELDEN RING COPY" / "Game"
+            selected.mkdir(parents=True)
+            (steamapps / "appmanifest_1245620.acf").write_text(
+                '"installdir" "ELDEN RING"\n"buildid" "25080141"\n',
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(patcher_gui, "_steam_roots", return_value=[]):
+                info = patcher_gui.steam_build_info(selected)
+
+            self.assertEqual(
+                info,
+                patcher_gui.SteamBuildInfo(None, "manifest_not_linked"),
+            )
+
+    def test_install_worker_rejects_incompatible_files_before_creating_engine(self) -> None:
         app = mock.Mock()
-        build_error = patcher_gui.UnsupportedBuildError(
-            patcher_gui.SteamBuildInfo("11111111", "identified"),
+        build_error = patcher_gui.GameFilesCompatibilityError(
+            "sd.bhd divergente",
             before_game_writes=True,
         )
         app._validated_context.side_effect = build_error
@@ -248,6 +689,11 @@ class GuiIntegrationTests(unittest.TestCase):
             patcher_gui.PatcherApp._install_worker(app, "selected-game")
 
         engine_class.assert_called_once()
+        self.assertEqual(engine_class.call_args.args, (game_dir,))
+        self.assertIs(
+            engine_class.call_args.kwargs["archive_profile"],
+            patcher_gui.SUPPORTED_AUDIO_PROFILE,
+        )
         patch_engine.load_archives.assert_called_once_with()
         ensure_payload.assert_called_once()
         build_plan.assert_called_once_with(
@@ -293,6 +739,11 @@ class GuiIntegrationTests(unittest.TestCase):
             patcher_gui.PatcherApp._restore_worker(app, "selected-game")
 
         engine_class.assert_called_once()
+        self.assertEqual(engine_class.call_args.args, (game_dir,))
+        self.assertIs(
+            engine_class.call_args.kwargs["archive_profile"],
+            patcher_gui.SUPPORTED_AUDIO_PROFILE,
+        )
         patch_engine.load_archives.assert_called_once_with()
         patch_engine.restore_current_backup.assert_called_once_with()
         ensure_payload.assert_not_called()
@@ -321,14 +772,102 @@ class GuiIntegrationTests(unittest.TestCase):
         error = app._report_failure.call_args.kwargs["exc"]
         self.assertIn("verifica di Steam", str(error))
 
-    def test_precommit_build_change_does_not_claim_no_files_changed(self) -> None:
-        error = patcher_gui.UnsupportedBuildError(
-            patcher_gui.SteamBuildInfo("11111111", "identified"),
+    def test_precommit_file_change_does_not_claim_no_files_changed(self) -> None:
+        error = patcher_gui.GameFilesCompatibilityError(
+            "sd.bhd è cambiato",
             before_game_writes=False,
         )
 
         self.assertNotIn("Nessun file è stato modificato", str(error))
-        self.assertIn("rivalidazione di sicurezza", str(error))
+        self.assertIn("riconvalida finale", str(error))
+
+    def test_precommit_revalidates_files_without_trusting_manifest(self) -> None:
+        game_dir = Path("selected-game")
+        info = patcher_gui.SteamBuildInfo("25080141", "identified")
+
+        with (
+            mock.patch.object(patcher_gui, "running_blockers", return_value=[]),
+            mock.patch.object(
+                patcher_gui,
+                "steam_build_info",
+                return_value=info,
+            ),
+            mock.patch.object(patcher_gui, "require_supported_build") as require,
+            mock.patch.object(
+                patcher_gui,
+                "optional_movie_payload_present",
+                return_value=False,
+            ),
+        ):
+            patcher_gui.PatcherApp._precommit_guard(
+                game_dir,
+                selected_path=game_dir,
+            )
+
+        require.assert_called_once_with(
+            game_dir,
+            info,
+            before_game_writes=False,
+        )
+
+    def test_precommit_accepts_missing_or_divergent_optional_manifest(self) -> None:
+        game_dir = Path("selected-game")
+        build_infos = (
+            patcher_gui.SteamBuildInfo(None, "manifest_missing"),
+            patcher_gui.SteamBuildInfo("99999999", "identified"),
+        )
+
+        for info in build_infos:
+            with self.subTest(info=info):
+                with (
+                    mock.patch.object(
+                        patcher_gui, "running_blockers", return_value=[]
+                    ),
+                    mock.patch.object(
+                        patcher_gui,
+                        "steam_build_info",
+                        return_value=info,
+                    ),
+                    mock.patch.object(
+                        patcher_gui,
+                        "validate_game_archive_profile",
+                        return_value=patcher_gui.SUPPORTED_AUDIO_PROFILE.profile_id,
+                    ),
+                    mock.patch.object(
+                        patcher_gui,
+                        "optional_movie_payload_present",
+                        return_value=False,
+                    ),
+                ):
+                    patcher_gui.PatcherApp._precommit_guard(game_dir)
+
+    def test_precommit_still_rejects_wrong_real_files(self) -> None:
+        game_dir = Path("selected-game")
+        info = patcher_gui.SteamBuildInfo(None, "manifest_missing")
+
+        with (
+            mock.patch.object(patcher_gui, "running_blockers", return_value=[]),
+            mock.patch.object(
+                patcher_gui,
+                "steam_build_info",
+                return_value=info,
+            ),
+            mock.patch.object(
+                patcher_gui,
+                "validate_game_archive_profile",
+                side_effect=patcher_gui.CompatibilityError("sd.bhd divergente"),
+            ),
+            mock.patch.object(
+                patcher_gui,
+                "optional_movie_payload_present",
+                return_value=False,
+            ),
+            self.assertRaises(patcher_gui.GameFilesCompatibilityError) as raised,
+        ):
+            patcher_gui.PatcherApp._precommit_guard(game_dir)
+
+        self.assertFalse(raised.exception.before_game_writes)
+        self.assertIn("sd.bhd divergente", str(raised.exception))
 
     def test_error_freezes_stage_elapsed_time_for_later_report(self) -> None:
         app = self._diagnostic_state_stub()
@@ -371,7 +910,7 @@ class GuiIntegrationTests(unittest.TestCase):
         )
 
         snapshot = patcher_gui.PatcherApp._diagnostic_snapshot(
-            app, r".\selected-game"
+            app, os.path.join(".", "selected-game")
         )
 
         self.assertEqual(snapshot["detected_build_id"], "11111111")

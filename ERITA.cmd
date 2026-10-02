@@ -160,7 +160,7 @@ echo.
 echo ERRORE: questo pacchetto e' incompleto oppure una dipendenza non ha superato la verifica SHA-256.
 echo La diagnostica ERITA-PACKAGE-001 qui sopra indica il file esatto.
 echo Se hai aperto il CMD dentro lo ZIP, chiudi questa finestra e usa prima Estrai tutto.
-echo Usa ERITA-v0.9.5-Windows.zip dalla pagina Releases, estratto per intero.
+echo Usa ERITA-v0.9.7-Windows.zip dalla pagina Releases, estratto per intero.
 echo Non usare lo ZIP automatico chiamato semplicemente Source code.
 goto :failed
 

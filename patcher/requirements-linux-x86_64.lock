@@ -1,0 +1,15 @@
+--only-binary=:all:
+
+# Wheels fixados para o runtime portatil Linux x86_64 do release oficial.
+# A instalacao e totalmente offline e usa --require-hashes.
+customtkinter==5.2.2 \
+    --hash=sha256:14ad3e7cd3cb3b9eb642b9d4e8711ae80d3f79fb82545ad11258eeffb2e6b37c
+
+darkdetect==0.8.0 \
+    --hash=sha256:a7509ccf517eaad92b31c214f593dbcf138ea8a43b2935406bbd565e15527a85
+
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+
+pycryptodome==3.23.0 \
+    --hash=sha256:c8987bd3307a39bc03df5c8e0e3d8be0c4c3518b7f044b0f4c15d1aa78f52575

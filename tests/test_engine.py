@@ -5,12 +5,119 @@ import json
 import os
 import shutil
 import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from patcher import engine
+from patcher import bnk, engine
+
+
+class CoreFilesystemPortabilityTests(unittest.TestCase):
+    def test_posix_path_identity_preserves_case(self) -> None:
+        upper = Path("root") / "Game"
+        lower = Path("root") / "game"
+
+        with mock.patch.object(engine, "_is_windows", return_value=False):
+            self.assertNotEqual(
+                engine._path_identity_text(upper),
+                engine._path_identity_text(lower),
+            )
+        with mock.patch.object(engine, "_is_windows", return_value=True):
+            self.assertEqual(
+                engine._path_identity_text(upper),
+                engine._path_identity_text(lower),
+            )
+
+    def test_posix_backup_root_uses_xdg_state_and_ignores_localappdata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            xdg_state = Path(temp) / "state"
+            with (
+                mock.patch.object(engine, "_is_windows", return_value=False),
+                mock.patch.dict(
+                    engine.os.environ,
+                    {
+                        "LOCALAPPDATA": str(Path(temp) / "windows-only"),
+                        "XDG_STATE_HOME": str(xdg_state),
+                    },
+                    clear=True,
+                ),
+            ):
+                self.assertEqual(
+                    engine._default_backup_root(),
+                    xdg_state / "ERITA" / "backups",
+                )
+
+    def test_rename_noreplace_dispatches_to_linux_and_fsyncs_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"data")
+
+            def linux_rename(left: Path, right: Path) -> None:
+                os.rename(left, right)
+
+            with (
+                mock.patch.object(engine, "_is_windows", return_value=False),
+                mock.patch.object(engine.sys, "platform", "linux"),
+                mock.patch.object(
+                    engine,
+                    "_linux_rename_noreplace",
+                    side_effect=linux_rename,
+                ) as rename_mock,
+                mock.patch.object(engine, "_fsync_directory") as fsync_mock,
+            ):
+                engine._rename_noreplace(source, destination)
+
+            rename_mock.assert_called_once()
+            fsync_mock.assert_called_once_with(
+                Path(os.path.abspath(os.fspath(root)))
+            )
+            self.assertFalse(source.exists())
+            self.assertEqual(destination.read_bytes(), b"data")
+
+    def test_non_linux_posix_rename_fails_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"data")
+            with (
+                mock.patch.object(engine, "_is_windows", return_value=False),
+                mock.patch.object(engine.sys, "platform", "freebsd-test"),
+            ):
+                with self.assertRaises(OSError):
+                    engine._rename_noreplace(source, destination)
+            self.assertEqual(source.read_bytes(), b"data")
+            self.assertFalse(destination.exists())
+
+    def test_atomic_json_fsyncs_parent_after_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "manifest.json"
+            with mock.patch.object(engine, "_fsync_directory") as fsync_mock:
+                engine._atomic_json(destination, {"state": "prepared"})
+            fsync_mock.assert_called_once_with(destination.parent)
+            self.assertEqual(
+                json.loads(destination.read_text(encoding="utf-8")),
+                {"state": "prepared"},
+            )
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux renameat2")
+    def test_linux_rename_noreplace_preserves_existing_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"source")
+            destination.write_bytes(b"external")
+
+            with self.assertRaises(FileExistsError):
+                engine._linux_rename_noreplace(source, destination)
+
+            self.assertEqual(source.read_bytes(), b"source")
+            self.assertEqual(destination.read_bytes(), b"external")
 
 
 def make_bhd(entries: list[tuple[int, int, int, int]]) -> bytes:
@@ -107,6 +214,40 @@ def make_wem(fmt_data: bytes, audio_data: bytes, extra_hash: bytes = b"") -> byt
     return b"RIFF" + struct.pack("<I", len(chunks) + 4) + b"WAVE" + bytes(chunks)
 
 
+def make_test_bnk(
+    *,
+    stream_type: int,
+    wem_id: int,
+    include_target_only_object: bool,
+    header_tail: bytes,
+) -> bytes:
+    """Small Wwise-135 bank used by the structural fallback integration tests."""
+
+    def section(chunk_id: bytes, value: bytes) -> bytes:
+        return chunk_id + struct.pack("<I", len(value)) + value
+
+    sound_body = struct.pack(
+        "<IBIIB",
+        1,
+        stream_type,
+        wem_id,
+        0,
+        0x80,
+    ) + b"sound-settings"
+    sound_payload = struct.pack("<I", 10) + sound_body
+    objects = bytearray(struct.pack("<I", 2 if include_target_only_object else 1))
+    objects.extend(b"\x02" + struct.pack("<I", len(sound_payload)) + sound_payload)
+    if include_target_only_object:
+        target_only = struct.pack("<I", 20) + b"target-only-event"
+        objects.extend(b"\x03" + struct.pack("<I", len(target_only)) + target_only)
+    return b"".join(
+        (
+            section(b"BKHD", struct.pack("<II", 135, 7) + header_tail),
+            section(b"HIRC", bytes(objects)),
+        )
+    )
+
+
 def write_archive(
     sd_dir: Path,
     stem: str,
@@ -118,6 +259,27 @@ def write_archive(
     bhd_path.write_bytes(make_bhd(entries))
     bdt_path.write_bytes(bdt_data)
     return bhd_path, bdt_path
+
+
+def archive_profile_for(
+    sd_dir: Path,
+    stems: tuple[str, ...] = ("sd", "sd_dlc02"),
+    *,
+    profile_id: str = "test-audio-profile",
+) -> engine.GameArchiveProfile:
+    fingerprints = []
+    for stem in stems:
+        bhd_path = sd_dir / f"{stem}.bhd"
+        bdt_path = sd_dir / f"{stem}.bdt"
+        fingerprints.append(
+            engine.ArchiveFingerprint(
+                stem=stem,
+                bhd_sha256=hashlib.sha256(bhd_path.read_bytes()).hexdigest(),
+                bdt_size=bdt_path.stat().st_size,
+                original_bdt_sha256=hashlib.sha256(bdt_path.read_bytes()).hexdigest(),
+            )
+        )
+    return engine.GameArchiveProfile(profile_id, tuple(fingerprints))
 
 
 class BhdParsingTests(unittest.TestCase):
@@ -141,6 +303,37 @@ class BhdParsingTests(unittest.TestCase):
         parsed = engine.parse_bhd5(data + b"\0" * 175, bdt_size=12)
 
         self.assertEqual(len(parsed), 1)
+
+    def test_parse_rejects_noncanonical_rsa_padding_tail(self) -> None:
+        data = make_bhd([(1, 8, 6, 4)])
+
+        for padding in (b"\0\x01", b"\0" * 255):
+            with self.subTest(padding_size=len(padding)):
+                with self.assertRaisesRegex(
+                    engine.CompatibilityError,
+                    "padding RSA non canonico",
+                ):
+                    engine.parse_bhd5(data + padding, bdt_size=12)
+
+    def test_rsa_decrypt_rejects_zero_and_out_of_range_blocks(self) -> None:
+        try:
+            from Crypto.PublicKey import RSA
+        except ImportError:  # pragma: no cover - CI/release installs the lockfile
+            self.skipTest("PyCryptodome non installato")
+        key = RSA.import_key(engine.ELDEN_RING_SD_KEY_PEM)
+        block_size = (key.size_in_bits() + 7) // 8
+
+        invalid_blocks = (
+            b"\0" * block_size,
+            key.n.to_bytes(block_size, "big"),
+        )
+        for block in invalid_blocks:
+            with self.subTest(block_prefix=block[:4].hex()):
+                with self.assertRaisesRegex(
+                    engine.CompatibilityError,
+                    "blocco non canonico",
+                ):
+                    engine.rsa_decrypt_bhd(block)
 
     def test_parse_rejects_non_little_endian_pc_header(self) -> None:
         data = bytearray(make_bhd([(1, 8, 6, 4)]))
@@ -298,6 +491,366 @@ class PayloadPreparationTests(unittest.TestCase):
         self.assertEqual(bytes(result), expected)
 
 
+class ArchiveProfileTests(unittest.TestCase):
+    @staticmethod
+    def _game(root: Path) -> tuple[Path, Path]:
+        game = root / "Game"
+        sd_dir = game / "sd"
+        sd_dir.mkdir(parents=True)
+        write_archive(sd_dir, "sd", [(1, 4, 4, 0)], b"AAAA")
+        write_archive(sd_dir, "sd_dlc02", [(2, 4, 4, 0)], b"BBBB")
+        return game, sd_dir
+
+    def test_exact_profile_is_recognized_without_reading_bdts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            game, sd_dir = self._game(Path(temp))
+            profile = archive_profile_for(sd_dir)
+            real_sha256 = engine.sha256_file
+            hashed: list[Path] = []
+
+            def record_hash(path: Path, callback=None) -> str:
+                hashed.append(path)
+                return real_sha256(path, callback)
+
+            with mock.patch.object(engine, "sha256_file", side_effect=record_hash):
+                result = engine.validate_game_archive_profile(game, profile)
+
+            self.assertEqual(result, profile.profile_id)
+            self.assertEqual({path.suffix for path in hashed}, {".bhd"})
+
+    def test_changed_bhd_is_rejected_even_when_sizes_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            game, sd_dir = self._game(Path(temp))
+            profile = archive_profile_for(sd_dir)
+            (sd_dir / "sd.bhd").write_bytes(b"wrong-but-present")
+
+            with self.assertRaisesRegex(
+                engine.CompatibilityError,
+                "sd.bhd non corrisponde",
+            ):
+                engine.validate_game_archive_profile(game, profile)
+
+    def test_extra_archive_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            game, sd_dir = self._game(Path(temp))
+            profile = archive_profile_for(sd_dir)
+            write_archive(sd_dir, "sd_dlc03", [(3, 4, 4, 0)], b"CCCC")
+
+            with self.assertRaisesRegex(
+                engine.CompatibilityError,
+                "in più=.*sd_dlc03",
+            ):
+                engine.validate_game_archive_profile(game, profile)
+
+    def test_bdt_size_mismatch_is_rejected_without_hashing_bdt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            game, sd_dir = self._game(Path(temp))
+            profile = archive_profile_for(sd_dir)
+            (sd_dir / "sd.bdt").write_bytes(b"AAAA-more")
+
+            with self.assertRaisesRegex(
+                engine.CompatibilityError,
+                "sd.bdt.*dimensione",
+            ):
+                engine.validate_game_archive_profile(game, profile)
+
+    def test_profile_catalog_rejects_ambiguous_quick_signatures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            game, sd_dir = self._game(Path(temp))
+            first = archive_profile_for(sd_dir, profile_id="first")
+            second = engine.GameArchiveProfile(
+                "second",
+                tuple(
+                    engine.ArchiveFingerprint(
+                        stem=item.stem,
+                        bhd_sha256=item.bhd_sha256,
+                        bdt_size=item.bdt_size,
+                        original_bdt_sha256="0" * 64,
+                    )
+                    for item in first.archives
+                ),
+            )
+
+            with self.assertRaisesRegex(ValueError, "catalogo sarebbe ambiguo"):
+                engine.PatchEngine(game, archive_profiles=(first, second))
+
+
+class StructuralFallbackTests(unittest.TestCase):
+    @staticmethod
+    def _rsa_envelope_fixture(root: Path):
+        """Make a synthetic index look RSA-wrapped without needing FromSoft's key."""
+
+        bhd_path = root / "Game" / "sd" / "sd.bhd"
+        plaintext = bhd_path.read_bytes()
+        bhd_path.write_bytes(b"\x01" * 256)
+        return mock.patch.object(
+            engine,
+            "rsa_decrypt_bhd",
+            return_value=plaintext,
+        )
+
+    def _fixture(
+        self, root: Path
+    ) -> tuple[
+        engine.PatchEngine,
+        Path,
+        Path,
+        bytes,
+        engine.GameArchiveProfile,
+    ]:
+        game = root / "Game"
+        sd_dir = game / "sd"
+        payload = root / "payload"
+        sd_dir.mkdir(parents=True)
+        payload.mkdir()
+
+        vanilla_bank = make_test_bnk(
+            stream_type=1,
+            wem_id=100,
+            include_target_only_object=True,
+            header_tail=b"target-build-header",
+        )
+        historical_bank = make_test_bnk(
+            stream_type=2,
+            wem_id=100,
+            include_target_only_object=False,
+            header_tail=b"historical-header",
+        )
+        bank_offset = 4
+        wem_offset = bank_offset + len(vanilla_bank)
+        wem_slot = b"V" * 64
+        bdt = b"HEAD" + vanilla_bank + wem_slot + b"TAIL"
+        salt = b"GR_sound"
+        entries = [
+            (
+                engine.hash_path("voice.bnk"),
+                len(vanilla_bank),
+                len(vanilla_bank),
+                bank_offset,
+                hashlib.sha256(vanilla_bank + salt).digest(),
+                ((0, len(vanilla_bank)),),
+            ),
+            (
+                engine.hash_path("enus/wem/10/100.wem"),
+                len(wem_slot),
+                len(wem_slot),
+                wem_offset,
+                hashlib.sha256(wem_slot + salt).digest(),
+                ((0, len(wem_slot)),),
+            ),
+        ]
+        (sd_dir / "sd.bhd").write_bytes(make_bhd_with_sha(entries, salt))
+        bdt_path = sd_dir / "sd.bdt"
+        bdt_path.write_bytes(bdt)
+        (payload / "voice.bnk").write_bytes(historical_bank)
+        (payload / "100.wem").write_bytes(
+            make_wem(b"\x01\x00\x01\x00", b"dubbed-audio")
+        )
+
+        # Deliberately does not match the fixture and therefore selects the
+        # structural fallback instead of the pinned-profile path.
+        catalog = engine.GameArchiveProfile(
+            "different-known-build",
+            (
+                engine.ArchiveFingerprint(
+                    stem="sd",
+                    bhd_sha256="0" * 64,
+                    bdt_size=len(bdt),
+                    original_bdt_sha256="0" * 64,
+                ),
+            ),
+        )
+        patcher = engine.PatchEngine(
+            game,
+            backup_root=root / "backups",
+            archive_profiles=(catalog,),
+        )
+        return patcher, payload, bdt_path, vanilla_bank, catalog
+
+    @staticmethod
+    def _bank_from_bdt(
+        bdt_path: Path, vanilla_bank: bytes
+    ) -> bytes:
+        data = bdt_path.read_bytes()
+        return data[4 : 4 + len(vanilla_bank)]
+
+    def test_unknown_build_merges_historical_bnk_over_target_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            patcher, payload, bdt_path, vanilla_bank, _catalog = self._fixture(root)
+            with self._rsa_envelope_fixture(root):
+                patcher.load_archives()
+
+                written, unmatched = patcher.apply_plan(
+                    patcher.build_plan(payload),
+                    bhd_integrity_mode=engine.BHD_INTEGRITY_SCOPED_MOD,
+                )
+
+            self.assertTrue(patcher.structural_fallback)
+            self.assertEqual((written, unmatched), (2, 0))
+            merged = self._bank_from_bdt(bdt_path, vanilla_bank)
+            sections = {item.chunk_id: item for item in bnk.parse_bnk(merged)}
+            vanilla_sections = {
+                item.chunk_id: item for item in bnk.parse_bnk(vanilla_bank)
+            }
+            self.assertEqual(sections[b"BKHD"], vanilla_sections[b"BKHD"])
+            objects = bnk.parse_hirc(sections[b"HIRC"].data)
+            self.assertEqual([(item.type_id, item.object_id) for item in objects], [(2, 10), (3, 20)])
+            sound = objects[0]
+            self.assertEqual(sound.raw[13], 2)
+            self.assertEqual(struct.unpack_from("<I", sound.raw, 14)[0], 100)
+
+    def test_catalogued_build_uses_same_historical_bnk_merge_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _fallback, payload, bdt_path, vanilla_bank, _catalog = self._fixture(root)
+            exact = archive_profile_for(root / "Game" / "sd", stems=("sd",))
+            patcher = engine.PatchEngine(
+                root / "Game",
+                backup_root=root / "backups",
+                archive_profiles=(exact,),
+            )
+            patcher.load_archives()
+            patcher.apply_plan(
+                patcher.build_plan(payload),
+                bhd_integrity_mode=engine.BHD_INTEGRITY_SCOPED_MOD,
+            )
+
+            self.assertFalse(patcher.structural_fallback)
+            self.assertTrue(patcher.merge_bnk_from_baseline)
+            merged = self._bank_from_bdt(bdt_path, vanilla_bank)
+            objects = bnk.parse_hirc(
+                {item.chunk_id: item for item in bnk.parse_bnk(merged)}[b"HIRC"].data
+            )
+            self.assertEqual(objects[0].raw[13], 2)
+            self.assertEqual(
+                [(item.type_id, item.object_id) for item in objects],
+                [(2, 10), (3, 20)],
+            )
+
+    def test_structural_reinstall_rebuilds_bnk_from_immutable_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first, payload, bdt_path, vanilla_bank, catalog = self._fixture(root)
+            with self._rsa_envelope_fixture(root):
+                first.load_archives()
+                first.apply_plan(
+                    first.build_plan(payload),
+                    bhd_integrity_mode=engine.BHD_INTEGRITY_SCOPED_MOD,
+                )
+                first_objects = bnk.parse_hirc(
+                    {
+                        item.chunk_id: item
+                        for item in bnk.parse_bnk(
+                            self._bank_from_bdt(bdt_path, vanilla_bank)
+                        )
+                    }[b"HIRC"].data
+                )
+                self.assertEqual(first_objects[0].raw[13], 2)
+
+                # A second payload asks for the vanilla 1 -> 1 state.  This succeeds
+                # only when materialization reads the immutable backup; treating the
+                # already-patched live BNK (stream type 2) as vanilla would fail.
+                (payload / "voice.bnk").write_bytes(
+                    make_test_bnk(
+                        stream_type=1,
+                        wem_id=100,
+                        include_target_only_object=False,
+                        header_tail=b"historical-header",
+                    )
+                )
+                update = engine.PatchEngine(
+                    first.game_dir,
+                    backup_root=root / "backups",
+                    archive_profiles=(catalog,),
+                )
+                update.load_archives()
+                update.apply_plan(
+                    update.build_plan(payload),
+                    bhd_integrity_mode=engine.BHD_INTEGRITY_SCOPED_MOD,
+                )
+
+            updated = self._bank_from_bdt(bdt_path, vanilla_bank)
+            updated_objects = bnk.parse_hirc(
+                {item.chunk_id: item for item in bnk.parse_bnk(updated)}[b"HIRC"].data
+            )
+            self.assertEqual(updated_objects[0].raw[13], 1)
+            self.assertEqual(
+                [(item.type_id, item.object_id) for item in updated_objects],
+                [(2, 10), (3, 20)],
+            )
+
+    def test_bnk_cannot_authorize_external_wem_absent_from_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            patcher, payload, bdt_path, vanilla_bank, _catalog = self._fixture(root)
+            (payload / "100.wem").unlink()
+            with self._rsa_envelope_fixture(root):
+                patcher.load_archives()
+                plan = patcher.build_plan(payload)
+
+                patcher.apply_plan(
+                    plan,
+                    bhd_integrity_mode=engine.BHD_INTEGRITY_SCOPED_MOD,
+                )
+
+            merged = self._bank_from_bdt(bdt_path, vanilla_bank)
+            objects = bnk.parse_hirc(
+                {item.chunk_id: item for item in bnk.parse_bnk(merged)}[b"HIRC"].data
+            )
+            self.assertEqual(objects[0].raw[13], 1)
+            self.assertEqual(
+                [(item.type_id, item.object_id) for item in objects],
+                [(2, 10), (3, 20)],
+            )
+
+    def test_unknown_build_requires_sha_metadata_for_every_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            game = root / "Game"
+            sd_dir = game / "sd"
+            sd_dir.mkdir(parents=True)
+            write_archive(sd_dir, "sd", [(1, 4, 4, 0)], b"DATA")
+            catalog = engine.GameArchiveProfile(
+                "different-known-build",
+                (
+                    engine.ArchiveFingerprint(
+                        stem="sd",
+                        bhd_sha256="0" * 64,
+                        bdt_size=4,
+                        original_bdt_sha256="0" * 64,
+                    ),
+                ),
+            )
+            patcher = engine.PatchEngine(game, archive_profiles=(catalog,))
+
+            plaintext = (sd_dir / "sd.bhd").read_bytes()
+            (sd_dir / "sd.bhd").write_bytes(b"\x01" * 256)
+            with mock.patch.object(
+                engine,
+                "rsa_decrypt_bhd",
+                return_value=plaintext,
+            ):
+                with self.assertRaisesRegex(
+                    engine.CompatibilityError,
+                    "voci senza SHA salted",
+                ):
+                    patcher.load_archives()
+
+    def test_unknown_build_rejects_plaintext_bhd_even_if_self_consistent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            patcher, _payload, _bdt_path, _vanilla_bank, _catalog = self._fixture(
+                root
+            )
+
+            with self.assertRaisesRegex(
+                engine.CompatibilityError,
+                "senza l'involucro RSA ufficiale",
+            ):
+                patcher.load_archives()
+
+
 class PatchEngineTests(unittest.TestCase):
     def _make_engine_with_two_archives(
         self,
@@ -344,6 +897,221 @@ class PatchEngineTests(unittest.TestCase):
                 [item.bhd_path.name for item in patcher.archives],
                 ["sd.bhd", "sd_dlc02.bhd"],
             )
+
+    def test_profiled_install_requires_pinned_full_vanilla_bdt_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _patcher, game_dir, originals, slot_offset, slot_padded = (
+                self._make_engine_with_two_archives(root)
+            )
+            profile = archive_profile_for(game_dir / "sd")
+            bad_fingerprints = tuple(
+                engine.ArchiveFingerprint(
+                    stem=item.stem,
+                    bhd_sha256=item.bhd_sha256,
+                    bdt_size=item.bdt_size,
+                    original_bdt_sha256=(
+                        "0" * 64 if item.stem == "sd" else item.original_bdt_sha256
+                    ),
+                )
+                for item in profile.archives
+            )
+            patcher = engine.PatchEngine(
+                game_dir,
+                backup_root=root / "profiled-backups",
+                archive_profile=engine.GameArchiveProfile(
+                    profile.profile_id,
+                    bad_fingerprints,
+                ),
+            )
+            payload_dir = root / "payload-profile-mismatch"
+            payload_dir.mkdir()
+            (payload_dir / "voice.bnk").write_bytes(b"VOICE")
+            patcher.load_archives()
+            plan = patcher.build_plan(payload_dir)
+
+            with self.assertRaisesRegex(
+                engine.BackupError,
+                "baseline vanilla",
+            ):
+                patcher.apply_plan(plan)
+
+            for name, original in originals.items():
+                self.assertEqual((game_dir / "sd" / name).read_bytes(), original)
+            self.assertFalse(list((root / "profiled-backups").glob("*/*/manifest.json")))
+
+    def test_profiled_install_accepts_exact_full_vanilla_bdt_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _patcher, game_dir, _originals, _slot_offset, _slot_padded = (
+                self._make_engine_with_two_archives(root)
+            )
+            patcher = engine.PatchEngine(
+                game_dir,
+                backup_root=root / "profiled-backups",
+                archive_profile=archive_profile_for(game_dir / "sd"),
+            )
+            payload_dir = root / "payload-profile-match"
+            payload_dir.mkdir()
+            (payload_dir / "voice.bnk").write_bytes(b"VOICE")
+            patcher.load_archives()
+            plan = patcher.build_plan(payload_dir)
+
+            written, unmatched = patcher.apply_plan(plan)
+
+            self.assertEqual((written, unmatched), (2, 0))
+            self.assertEqual(
+                len(list((root / "profiled-backups").glob("*/*/manifest.json"))),
+                1,
+            )
+
+    def test_profiled_reinstall_reuses_authenticated_backup_when_already_patched(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _patcher, game_dir, originals, _slot_offset, _slot_padded = (
+                self._make_engine_with_two_archives(root)
+            )
+            backup_root = root / "profiled-backups"
+            profile = archive_profile_for(game_dir / "sd")
+            payload_dir = root / "payload-profile-reinstall"
+            payload_dir.mkdir()
+            (payload_dir / "voice.bnk").write_bytes(b"VOICE")
+
+            first = engine.PatchEngine(
+                game_dir,
+                backup_root=backup_root,
+                archive_profile=profile,
+            )
+            first.load_archives()
+            first.apply_plan(first.build_plan(payload_dir))
+            manifest_path = next(backup_root.glob("*/*/manifest.json"))
+            first_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            patched_before = {
+                name: (game_dir / "sd" / name).read_bytes() for name in originals
+            }
+
+            reinstall = engine.PatchEngine(
+                game_dir,
+                backup_root=backup_root,
+                archive_profile=profile,
+            )
+            reinstall.load_archives()
+            written, unmatched = reinstall.apply_plan(
+                reinstall.build_plan(payload_dir)
+            )
+
+            self.assertEqual((written, unmatched), (2, 0))
+            self.assertEqual(len(list(backup_root.glob("*/*/manifest.json"))), 1)
+            reinstalled_manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                reinstalled_manifest["backup_id"], first_manifest["backup_id"]
+            )
+            self.assertEqual(reinstalled_manifest["state"], "applied")
+            self.assertEqual(
+                {
+                    record["bdt"]: record["sha256"]
+                    for record in reinstalled_manifest["archives"]
+                },
+                {
+                    name: hashlib.sha256(original).hexdigest()
+                    for name, original in originals.items()
+                },
+            )
+            for name, expected in patched_before.items():
+                self.assertEqual((game_dir / "sd" / name).read_bytes(), expected)
+
+    def test_profiled_reinstall_rejects_backup_with_unpinned_original_hash(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _patcher, game_dir, originals, _slot_offset, _slot_padded = (
+                self._make_engine_with_two_archives(root)
+            )
+            backup_root = root / "profiled-backups"
+            profile = archive_profile_for(game_dir / "sd")
+            payload_dir = root / "payload-profile-existing-mismatch"
+            payload_dir.mkdir()
+            (payload_dir / "voice.bnk").write_bytes(b"VOICE")
+
+            first = engine.PatchEngine(
+                game_dir,
+                backup_root=backup_root,
+                archive_profile=profile,
+            )
+            first.load_archives()
+            first.apply_plan(first.build_plan(payload_dir))
+            manifest_path = next(backup_root.glob("*/*/manifest.json"))
+            manifest_before = manifest_path.read_bytes()
+            patched_before = {
+                name: (game_dir / "sd" / name).read_bytes() for name in originals
+            }
+            incompatible = engine.GameArchiveProfile(
+                "test-audio-profile-with-wrong-original",
+                tuple(
+                    engine.ArchiveFingerprint(
+                        stem=item.stem,
+                        bhd_sha256=item.bhd_sha256,
+                        bdt_size=item.bdt_size,
+                        original_bdt_sha256=(
+                            "0" * 64
+                            if item.stem == "sd"
+                            else item.original_bdt_sha256
+                        ),
+                    )
+                    for item in profile.archives
+                ),
+            )
+
+            reinstall = engine.PatchEngine(
+                game_dir,
+                backup_root=backup_root,
+                archive_profile=incompatible,
+            )
+            reinstall.load_archives()
+            with self.assertRaisesRegex(
+                engine.BackupError,
+                "backup originale di sd[.]bdt non appartiene al profilo omologato",
+            ):
+                reinstall.apply_plan(reinstall.build_plan(payload_dir))
+
+            self.assertEqual(manifest_path.read_bytes(), manifest_before)
+            for name, expected in patched_before.items():
+                self.assertEqual((game_dir / "sd" / name).read_bytes(), expected)
+
+    def test_profiled_restore_accepts_authenticated_subset_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _patcher, game_dir, originals, _offset, _size = (
+                self._make_engine_with_two_archives(root)
+            )
+            patcher = engine.PatchEngine(
+                game_dir,
+                backup_root=root / "profiled-backups",
+                archive_profile=archive_profile_for(game_dir / "sd"),
+            )
+            patcher.load_archives()
+            selected = (patcher.archives[0],)
+            manager = patcher._backup_manager(selected)
+            with manager.operation_lock():
+                manager.prepare()
+
+            patcher.restore_current_backup()
+
+            self.assertEqual(
+                manager.expected_original_sha256,
+                {
+                    selected[0].bdt_path.name.casefold(): hashlib.sha256(
+                        originals[selected[0].bdt_path.name]
+                    ).hexdigest()
+                },
+            )
+            for name, expected in originals.items():
+                self.assertEqual((game_dir / "sd" / name).read_bytes(), expected)
 
     def test_duplicate_hash_is_installed_in_both_bdts_then_restored(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -820,7 +1588,7 @@ class PatchEngineTests(unittest.TestCase):
             destination = root / ("a" * 64)
             source.mkdir()
             (source / "manifest.json").write_text("{}", encoding="utf-8")
-            real_rename = engine.os.rename
+            real_rename = engine._rename_noreplace
 
             def create_external_then_rename(src: Path, dst: Path) -> None:
                 destination.mkdir()
@@ -828,7 +1596,9 @@ class PatchEngineTests(unittest.TestCase):
                 real_rename(src, dst)
 
             with mock.patch.object(
-                engine.os, "rename", side_effect=create_external_then_rename
+                engine,
+                "_rename_noreplace",
+                side_effect=create_external_then_rename,
             ):
                 with self.assertRaises(engine.BackupError):
                     engine._rename_directory_without_replace(source, destination)
@@ -1475,6 +2245,7 @@ class PatchEngineTests(unittest.TestCase):
             patcher, game_dir, originals, _offset, _size = (
                 self._make_engine_with_two_archives(root)
             )
+            profile = archive_profile_for(game_dir / "sd")
             payload = root / "payload"
             payload.mkdir()
             (payload / "voice.bnk").write_bytes(b"VOICE")
@@ -1502,7 +2273,11 @@ class PatchEngineTests(unittest.TestCase):
 
             self.assertTrue(injected)
             self.assertFalse((game_dir / "sd" / "sd.bdt").exists())
-            fresh = engine.PatchEngine(game_dir, backup_root=root / "backups")
+            fresh = engine.PatchEngine(
+                game_dir,
+                backup_root=root / "backups",
+                archive_profile=profile,
+            )
             fresh.load_archives()
             fresh.restore_current_backup()
 
@@ -1560,7 +2335,7 @@ class PatchEngineTests(unittest.TestCase):
                 "_publish_without_replace",
                 side_effect=swap_rollback_during_publish,
             ):
-                with self.assertRaisesRegex(engine.BackupError, "sostituita"):
+                with self.assertRaisesRegex(engine.BackupError, "sostituit|cambiat"):
                     fresh.load_archives()
 
             self.assertTrue(swapped)
@@ -1829,6 +2604,85 @@ class PatchEngineTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             records = {item["bdt"]: item for item in manifest["archives"]}
             self.assertNotIn("patched_sha256", records["sd_dlc02.bdt"])
+
+    def test_contractive_update_restores_one_omitted_wem_in_touched_archive(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            game_dir = root / "Game"
+            sd_dir = game_dir / "sd"
+            sd_dir.mkdir(parents=True)
+            slot_size = 64
+            sellen_path = "enus/wem/55/553755359.wem"
+            other_path = "enus/wem/55/553755360.wem"
+            vanilla_sellen = engine.normalize_wem(
+                make_wem(b"fmt!", b"vanilla-sellen"), slot_size
+            )
+            vanilla_other = engine.normalize_wem(
+                make_wem(b"fmt!", b"vanilla-other"), slot_size
+            )
+            original_bdt = vanilla_sellen + vanilla_other
+            bhd_path, bdt_path = write_archive(
+                sd_dir,
+                "sd",
+                [
+                    (engine.hash_path(sellen_path), slot_size, slot_size, 0),
+                    (
+                        engine.hash_path(other_path),
+                        slot_size,
+                        slot_size,
+                        slot_size,
+                    ),
+                ],
+                original_bdt,
+            )
+            original_bhd = bhd_path.read_bytes()
+            backup_root = root / "backups"
+            payload = root / "payload"
+            (payload / "enus" / "wem" / "55").mkdir(parents=True)
+            sellen_payload = payload / Path(*sellen_path.split("/"))
+            other_payload = payload / Path(*other_path.split("/"))
+            sellen_payload.write_bytes(make_wem(b"fmt!", b"dubbed-sellen"))
+            other_payload.write_bytes(make_wem(b"fmt!", b"dubbed-other"))
+
+            first = engine.PatchEngine(game_dir, backup_root=backup_root)
+            first.load_archives()
+            first.apply_plan(first.build_plan(payload))
+            first_result = bdt_path.read_bytes()
+            self.assertNotEqual(first_result[:slot_size], vanilla_sellen)
+            self.assertNotEqual(first_result[slot_size:], vanilla_other)
+
+            sellen_payload.unlink()
+            other_payload.write_bytes(make_wem(b"fmt!", b"dubbed-other-v2"))
+            update = engine.PatchEngine(game_dir, backup_root=backup_root)
+            update.load_archives()
+            written, unmatched = update.apply_plan(update.build_plan(payload))
+            updated_bdt = bdt_path.read_bytes()
+
+            self.assertEqual((written, unmatched), (1, 0))
+            self.assertEqual(updated_bdt[:slot_size], vanilla_sellen)
+            self.assertEqual(
+                updated_bdt[slot_size:],
+                engine.normalize_wem(other_payload.read_bytes(), slot_size),
+            )
+            self.assertEqual(bhd_path.read_bytes(), original_bhd)
+
+            reinstall = engine.PatchEngine(game_dir, backup_root=backup_root)
+            reinstall.load_archives()
+            reinstall.apply_plan(reinstall.build_plan(payload))
+            self.assertEqual(bdt_path.read_bytes(), updated_bdt)
+            manifest_path = next(backup_root.glob("*/*/manifest.json"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["state"], "applied")
+
+            reinstall.restore_current_backup()
+            self.assertEqual(bdt_path.read_bytes(), original_bdt)
+            self.assertEqual(bhd_path.read_bytes(), original_bhd)
+            restored_manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(restored_manifest["state"], "restored")
 
     def test_truncated_foreign_manifest_cannot_bless_patched_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

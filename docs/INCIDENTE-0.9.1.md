@@ -3,7 +3,7 @@
 ## Stato
 
 **Risolto nella versione 0.9.4** per Elden Ring 1.17.1 (Steam BuildID
-`25080141`); la correzione è inclusa anche nel codice di ERITA 0.9.5. Le
+`25080141`); la correzione è inclusa anche nel codice di ERITA 0.9.7. Le
 versioni 0.8.4, 0.9.1 e 0.9.2 restano interessate e non vanno usate come
 alternativa.
 
@@ -15,12 +15,12 @@ dopo l'installazione del doppiaggio.
 ## Cosa fare se è stata installata una versione interessata
 
 1. Chiudi Elden Ring ed Easy Anti-Cheat.
-2. Scarica ed estrai `ERITA-v0.9.5-Windows.zip`.
+2. Scarica ed estrai `ERITA-v0.9.7-Windows.zip`.
 3. Apri `ERITA.cmd` e clicca su **Correggi audio (ripristina)**.
 4. Se il backup non fosse disponibile o il ripristino fallisse, usa **Steam >
    Elden Ring > Proprietà > File installati > Verifica integrità dei file**.
 5. Conferma l'audio originale e solo dopo usa **Installa doppiaggio** nella
-   versione 0.9.5.
+   versione 0.9.7.
 
 ## Diagnostica tecnica
 

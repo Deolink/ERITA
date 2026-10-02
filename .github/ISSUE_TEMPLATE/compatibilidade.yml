@@ -16,7 +16,7 @@ body:
     attributes:
       label: "Versione di ERITA"
       description: "Indica la versione mostrata nell'installer o nel nome del file scaricato."
-      placeholder: "Es.: 0.9.5"
+      placeholder: "Es.: 0.9.7"
     validations:
       required: true
 
@@ -38,12 +38,56 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: windows_version
+  - type: dropdown
+    id: platform
     attributes:
-      label: "Versione di Windows"
-      description: "Premi Win + R, digita winver e copia la versione mostrata."
-      placeholder: "Es.: Windows 11 24H2"
+      label: "Piattaforma"
+      description: "Scegli il sistema su cui hai eseguito l'installer."
+      options:
+        - "Windows x64"
+        - "Linux x86_64"
+        - "Steam Deck — Modalità desktop"
+    validations:
+      required: true
+
+  - type: input
+    id: operating_system
+    attributes:
+      label: "Versione del sistema"
+      description: "Su Windows usa winver. Su Linux indica distribuzione e versione; su Steam Deck indica la versione di SteamOS."
+      placeholder: "Es.: Windows 11 24H2, Ubuntu 24.04 o SteamOS 3.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: steam_distribution
+    attributes:
+      label: "Installazione di Steam"
+      description: "Indica come è stato installato Steam su questo sistema."
+      options:
+        - "Windows"
+        - "Linux nativo — pacchetto della distribuzione"
+        - "Linux Flatpak"
+        - "Linux Snap"
+        - "SteamOS"
+        - "Non so"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: filesystem
+    attributes:
+      label: "Filesystem della libreria del gioco"
+      description: "Su Linux il supporto iniziale della 0.9.7 è ext4. Se non lo sai, scegli l'ultima opzione."
+      options:
+        - "Windows — NTFS"
+        - "Windows — altro"
+        - "Linux — ext4"
+        - "Linux — btrfs"
+        - "Linux — NTFS"
+        - "Linux — exFAT"
+        - "Linux — altro"
+        - "Non so"
     validations:
       required: true
 
@@ -54,7 +98,7 @@ body:
       description: "Scegli l'opzione più simile a quanto accaduto."
       options:
         - "Rilevamento della cartella del gioco"
-        - "Convalida della versione o del BuildID"
+        - "Convalida dei file o del registro di Steam"
         - "Caricamento dei file del gioco"
         - "Analisi o pianificazione dell'installazione"
         - "Creazione del backup"

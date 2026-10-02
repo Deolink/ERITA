@@ -2,7 +2,9 @@
 """Build a deterministic, data-only ERPT-BR payload candidate.
 
 The candidate combines the WEM files from an already authenticated historical
-``patch_data`` tree with BNKs produced by ``rebuild_bnk_payload.py``.  It never
+``patch_data`` tree with BNKs produced by ``rebuild_bnk_payload.py``.  A single
+authenticated, non-verbal WEM from Sellen's item-extraction animation is
+deliberately omitted so the patcher retains the vanilla slot.  The tool never
 opens game archives and it refuses to overwrite any output.  The resulting
 bundle contains:
 
@@ -44,7 +46,16 @@ from patcher import patch_data  # noqa: E402
 BUNDLE_SCHEMA = 1
 REBUILD_SCHEMA = 1
 REBUILD_ALGORITHM = "vanilla-authoritative-wwise135-v2"
-EXPECTED_WEM_COUNT = 8_969
+EXPECTED_HISTORICAL_WEM_COUNT = 8_969
+# The pinned BNK rebuild audited the complete historical set.  The release
+# plan below is intentionally contractive and leaves one vanilla slot untouched.
+EXPECTED_REBUILD_EXTERNAL_WEM_COUNT = 8_969
+EXCLUDED_WEM_RELATIVE = "enus/wem/55/553755359.wem"
+EXCLUDED_WEM_SIZE = 99_598
+EXCLUDED_WEM_SHA256 = (
+    "18a6c3f5a17b05b508f1b79e49f7b40a877e456553aed942feb011573c3d91b9"
+)
+EXPECTED_WEM_COUNT = EXPECTED_HISTORICAL_WEM_COUNT - 1
 EXPECTED_BNK_COUNT = 272
 EXPECTED_PHYSICAL_BANK_COUNT = 136
 EXPECTED_BUILD_ID = "25080141"
@@ -69,11 +80,11 @@ EXPECTED_REBUILT_BANKS_SHA256 = (
 EXPECTED_REBUILT_ALIAS_TREE_SHA256 = (
     "1d05c510d6c900fa90a7b46c8e300f47d3a99eff70f32f5bf42d67b1fd5dc120"
 )
-DEFAULT_VERSION = "v0.9.4-rc.1"
-DEFAULT_ARCHIVE_NAME = "patch_data_v094_rc1_wwise135_v2.zip"
+DEFAULT_VERSION = "v0.9.7"
+DEFAULT_ARCHIVE_NAME = "patch_data_v097.zip"
 DEFAULT_URL = (
     "https://github.com/lorepamplona/ERPT-BR/releases/download/"
-    "v0.9.4-rc.1/patch_data_v094_rc1_wwise135_v2.zip"
+    "v0.9.7-rc.1/patch_data_v097.zip"
 )
 FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 COPY_BUFFER_SIZE = 8 * 1024 * 1024
@@ -634,7 +645,7 @@ def _validate_rebuild_manifest(
         "bank_aliases_verified": EXPECTED_BNK_COUNT,
         "output_alias_files": EXPECTED_BNK_COUNT,
         "identical_alias_pairs": EXPECTED_PHYSICAL_BANK_COUNT,
-        "external_wem_ids": EXPECTED_WEM_COUNT,
+        "external_wem_ids": EXPECTED_REBUILD_EXTERNAL_WEM_COUNT,
         "sound_objects_changed": EXPECTED_CHANGED_SOUND_OBJECTS,
         "sound_objects_filtered": EXPECTED_FILTERED_SOUND_OBJECTS,
     }
@@ -825,7 +836,7 @@ def collect_candidate_files(
             f"O patch_data histórico não corresponde ao payload fixado: {exc}"
         ) from exc
     if (
-        old_stats.wem_count != EXPECTED_WEM_COUNT
+        old_stats.wem_count != EXPECTED_HISTORICAL_WEM_COUNT
         or old_stats.bnk_count != EXPECTED_BNK_COUNT
     ):
         raise CandidateBuildError("Contagens do payload histórico são inesperadas.")
@@ -860,7 +871,7 @@ def collect_candidate_files(
                 f"Tamanho divergente para BNK reconstruído {record.relative}: "
                 f"{record.size}; esperado {alias_sizes[record.relative]}"
             )
-    wem_records = tuple(
+    historical_wem_records = tuple(
         CandidateFile(
             relative=record.relative,
             source=record.source,
@@ -872,6 +883,7 @@ def collect_candidate_files(
         for record in historical_records
         if record.relative.casefold().endswith(".wem")
     )
+    wem_records = _select_release_wems(historical_wem_records)
     if len(wem_records) != EXPECTED_WEM_COUNT:
         raise CandidateBuildError(
             f"Foram encontrados {len(wem_records)} WEMs; esperado {EXPECTED_WEM_COUNT}."
@@ -909,6 +921,34 @@ def collect_candidate_files(
         rebuild_manifest_sha256,
         historical_marker_sha256,
     )
+
+
+def _select_release_wems(
+    historical_wem_records: Sequence[CandidateFile],
+) -> tuple[CandidateFile, ...]:
+    """Remove somente o WEM não verbal associado ao relato da missão da Sellen."""
+
+    excluded_records = tuple(
+        record
+        for record in historical_wem_records
+        if record.relative == EXCLUDED_WEM_RELATIVE
+    )
+    if len(excluded_records) != 1:
+        raise CandidateBuildError(
+            "O WEM de segurança da missão da Sellen não apareceu exatamente uma vez."
+        )
+    excluded = excluded_records[0]
+    if excluded.size != EXCLUDED_WEM_SIZE or excluded.sha256 != EXCLUDED_WEM_SHA256:
+        raise CandidateBuildError(
+            "O WEM de segurança da missão da Sellen não corresponde ao arquivo "
+            "problemático autenticado."
+        )
+    wem_records = tuple(
+        record
+        for record in historical_wem_records
+        if record.relative != EXCLUDED_WEM_RELATIVE
+    )
+    return wem_records
 
 
 def _validate_record_plan(
@@ -1509,6 +1549,10 @@ def _report(document: dict) -> str:
             f"- SHA-256 do ZIP: `{spec['sha256']}`",
             f"- SHA-256 da árvore: `{spec['tree_sha256']}`",
             (
+                "- WEM de segurança mantido no vanilla: "
+                f"`{EXCLUDED_WEM_RELATIVE}` (`{EXCLUDED_WEM_SHA256}`)"
+            ),
+            (
                 f"- BNKs reconstruídos: {stats['physical_banks_rebuilt']} físicos / "
                 f"{stats['bnk_count']} aliases"
             ),
@@ -2036,6 +2080,12 @@ def build_candidate(
                 "changed_sound_ids_sha256": EXPECTED_CHANGED_SOUND_IDS_SHA256,
                 "filtered_sound_ids_sha256": EXPECTED_FILTERED_SOUND_IDS_SHA256,
                 "vcmain_filtered_ids_sha256": EXPECTED_VCMAIN_FILTERED_IDS_SHA256,
+                "excluded_wem": {
+                    "path": EXCLUDED_WEM_RELATIVE,
+                    "size": EXCLUDED_WEM_SIZE,
+                    "sha256": EXCLUDED_WEM_SHA256,
+                    "reason": "sellen-primal-glintstone-animation-safety",
+                },
             },
             "statistics": {
                 "file_count": len(records),

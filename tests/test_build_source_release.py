@@ -52,23 +52,41 @@ def _payload_overrides(
 
 
 class FinalReleasePayloadTests(unittest.TestCase):
+    def test_sellen_vanilla_guard_rejects_every_numeric_wem_alias(self) -> None:
+        aliases = (
+            "enus/wem/55/553755359.wem",
+            "553755359.wem",
+            "wem/55/553755359.WEM",
+            "foo/553755359.wem",
+        )
+        for relative in aliases:
+            with self.subTest(relative=relative):
+                self.assertTrue(build_source_release._is_sellen_vanilla_wem(relative))
+                self.assertTrue(verify_source_release._is_sellen_vanilla_wem(relative))
+        self.assertFalse(
+            build_source_release._is_sellen_vanilla_wem("553755359.bnk")
+        )
+        self.assertFalse(
+            verify_source_release._is_sellen_vanilla_wem("553755360.wem")
+        )
+
     def test_final_constants_pin_the_reviewed_flat_payload(self) -> None:
-        self.assertEqual(build_source_release.FINAL_VERSION, "v0.9.5")
+        self.assertEqual(build_source_release.FINAL_VERSION, "v0.9.7")
         self.assertEqual(
             build_source_release.FINAL_ARCHIVE_NAME,
-            "ERITA-v0.9.5-Windows.zip",
+            "ERITA-v0.9.7-Windows.zip",
         )
-        self.assertEqual(build_source_release.PAYLOAD_ARCHIVE_SIZE, 588_468_447)
+        self.assertEqual(build_source_release.PAYLOAD_ARCHIVE_SIZE, 588_370_781)
         self.assertEqual(
             build_source_release.PAYLOAD_SHA256,
-            "430e9693a9b3313826e9f7c890cf592eb5b468d145bb405e8a4586002b877680",
+            "873a432f1f1a8a42fca0aa71610e019563b79da3772656c48280b31a80a858a6",
         )
         self.assertEqual(
             build_source_release.PAYLOAD_TREE_SHA256,
             verify_source_release.PAYLOAD_TREE_SHA256,
         )
-        self.assertEqual(build_source_release.PAYLOAD_FILE_COUNT, 9_241)
-        self.assertEqual(verify_source_release.PAYLOAD_FILE_COUNT, 9_241)
+        self.assertEqual(build_source_release.PAYLOAD_FILE_COUNT, 9_240)
+        self.assertEqual(verify_source_release.PAYLOAD_FILE_COUNT, 9_240)
 
     def test_payload_is_required_by_the_final_builder_cli(self) -> None:
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
@@ -103,13 +121,13 @@ class FinalReleasePayloadTests(unittest.TestCase):
                     build_source_release.write_payload_members(
                         outer,
                         payload=payload,
-                        package_root="ERITA-v0.9.5",
+                        package_root="ERITA-v0.9.7",
                         expected_identity=identity,
                     )
 
             with zipfile.ZipFile(outer_path, "r") as outer:
                 expected_names = [
-                    f"ERITA-v0.9.5/patch_data/{relative}"
+                    f"ERITA-v0.9.7/patch_data/{relative}"
                     for relative, _data in files
                 ]
                 self.assertEqual(outer.namelist(), expected_names)
@@ -141,14 +159,14 @@ class FinalReleasePayloadTests(unittest.TestCase):
             (root / "interno").mkdir()
             wheelhouse.mkdir()
             (root / "patcher/__init__.py").write_text(
-                '__version__ = "0.9.5"\n', encoding="utf-8", newline="\n"
+                '__version__ = "0.9.7"\n', encoding="utf-8", newline="\n"
             )
             (root / "patcher/patcher_gui.py").write_text(
-                'PATCHER_VERSION = "0.9.5"\n', encoding="utf-8", newline="\n"
+                'PATCHER_VERSION = "0.9.7"\n', encoding="utf-8", newline="\n"
             )
             for command in source_files[2:]:
                 (root / command).write_text(
-                    "@echo off\nrem venv-0.9.5\n",
+                    "@echo off\nrem venv-0.9.7\n",
                     encoding="utf-8",
                     newline="\n",
                 )
@@ -188,7 +206,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
             for relative, data in files:
                 archive.writestr(
                     build_source_release.zip_info(
-                        f"ERITA-v0.9.5/patch_data/{relative}"
+                        f"ERITA-v0.9.7/patch_data/{relative}"
                     ),
                     data,
                 )
@@ -201,7 +219,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
                 entries = [
                     (
                         relative,
-                        archive.getinfo(f"ERITA-v0.9.5/patch_data/{relative}"),
+                        archive.getinfo(f"ERITA-v0.9.7/patch_data/{relative}"),
                     )
                     for relative, _data in files
                 ]
@@ -214,7 +232,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
             for relative, data in files:
                 archive.writestr(
                     build_source_release.zip_info(
-                        f"ERITA-v0.9.5/patch_data/{relative}"
+                        f"ERITA-v0.9.7/patch_data/{relative}"
                     ),
                     data,
                 )
@@ -228,7 +246,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
                 entries = [
                     (
                         relative,
-                        archive.getinfo(f"ERITA-v0.9.5/patch_data/{relative}"),
+                        archive.getinfo(f"ERITA-v0.9.7/patch_data/{relative}"),
                     )
                     for relative, _data in files
                 ]
@@ -257,7 +275,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
                         build_source_release.write_payload_members(
                             outer,
                             payload=payload,
-                            package_root="ERITA-v0.9.5",
+                            package_root="ERITA-v0.9.7",
                             expected_identity=identity,
                         )
 
@@ -269,7 +287,7 @@ class FinalReleasePayloadTests(unittest.TestCase):
             ) as archive:
                 archive.writestr(
                     build_source_release.zip_info(
-                        "ERITA-v0.9.5/patch_data/nested.zip"
+                        "ERITA-v0.9.7/patch_data/nested.zip"
                     ),
                     b"PK\x03\x04",
                 )

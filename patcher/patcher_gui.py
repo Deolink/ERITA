@@ -20,8 +20,8 @@ if (
     _legacy_messagebox.showwarning(
         "ERITA - migrazione necessaria",
         "Questo eseguibile è stato dismesso per sicurezza e non applicherà la patch.\n\n"
-        "Scarica il pacchetto 'ERITA-v0.9.5-Windows.zip' dalla pagina Releases del "
-        "progetto, estrailo ed esegui ERITA.cmd.\n\n"
+        "Scarica il pacchetto ERITA più recente per il tuo sistema dalla pagina "
+        "Releases, estrailo ed esegui ERITA.cmd.\n\n"
         "Se una vecchia versione del doppiaggio è già stata installata, usa prima "
         "Steam > Elden Ring > Proprietà > File installati > "
         "Verifica integrità dei file.",
@@ -47,12 +47,16 @@ import customtkinter as ctk
 try:  # Supporta ``python -m patcher.patcher_gui`` e l'esecuzione diretta del file.
     from .engine import (
         BHD_INTEGRITY_SCOPED_MOD,
+        ArchiveFingerprint,
+        ArchiveProfileError,
         BackupError,
         CompatibilityError,
+        GameArchiveProfile,
         LegacyBackupError,
         PatchEngine,
         PatcherError,
         find_incomplete_backups,
+        validate_game_archive_profile,
         validate_game_directory,
     )
     from .patch_data import (
@@ -66,12 +70,16 @@ try:  # Supporta ``python -m patcher.patcher_gui`` e l'esecuzione diretta del fi
 except ImportError:  # pragma: no cover - percorso usato dallo script interno
     from engine import (
         BHD_INTEGRITY_SCOPED_MOD,
+        ArchiveFingerprint,
+        ArchiveProfileError,
         BackupError,
         CompatibilityError,
+        GameArchiveProfile,
         LegacyBackupError,
         PatchEngine,
         PatcherError,
         find_incomplete_backups,
+        validate_game_archive_profile,
         validate_game_directory,
     )
     from patch_data import (
@@ -84,17 +92,49 @@ except ImportError:  # pragma: no cover - percorso usato dallo script interno
     from diagnostics import build_diagnostic_report
 
 
-PATCHER_VERSION = "0.9.5"
+PATCHER_VERSION = "0.9.7"
 SUPPORTED_GAME_VERSION = "1.17.1"
 SUPPORTED_STEAM_BUILD_IDS = frozenset({"25080141"})
+SUPPORTED_AUDIO_PROFILE = GameArchiveProfile(
+    profile_id="elden-ring-1.17.1-audio",
+    archives=(
+        ArchiveFingerprint(
+            stem="sd",
+            bhd_sha256=(
+                "c62ef231ebdcd91b09349496c6f1ff6f5bc32959cc59bbd0474f90d36b3eb5ec"
+            ),
+            bdt_size=2_308_921_312,
+            original_bdt_sha256=(
+                "2cfc747f4bafef625210a9f0abbdd47f2e076f2576757f31c3b4aeb2e063742d"
+            ),
+        ),
+        ArchiveFingerprint(
+            stem="sd_dlc02",
+            bhd_sha256=(
+                "f8e4be20c1fd1c04b7d287de95d455fe9dceb73d13aaab44450fc03a225dde7e"
+            ),
+            bdt_size=371_868_704,
+            original_bdt_sha256=(
+                "b7f590ea9c8dd9c4fedfb76204516e0c037321170c5c83302b777e58d96cb97c"
+            ),
+        ),
+    ),
+)
 STEAM_APP_ID = "1245620"
 PROJECT_URL = "https://github.com/Deolink/ERITA"
 # Il fork non pubblica ancora release: le note della versione stanno nel repository.
-DETAILS_URL = f"{PROJECT_URL}/blob/main/docs/RELEASE-0.9.5.md"
+DETAILS_URL = f"{PROJECT_URL}/blob/main/docs/RELEASE-0.9.7.md"
 # Interruttore d'emergenza: si può riattivare senza togliere il flusso di ripristino.
 INSTALLATION_SUSPENDED = False
 COMPATIBILITY_ISSUE_URL = (
     f"{PROJECT_URL}/issues/new?template=compatibilidade.yml"
+)
+INSTALLATION_SUCCESS_MESSAGE = (
+    "Il doppiaggio audio è stato applicato e verificato.\n\n"
+    "Apri Elden Ring normalmente tramite Steam; questo installer non sostituisce "
+    "né disattiva l'Easy Anti-Cheat. L'appmanifest è solo informativo: "
+    "conferma che Steam riconosca e aggiorni questa installazione prima di giocare "
+    "online."
 )
 APP_ROOT = Path(__file__).resolve().parent.parent
 MOVIE_FOLDERS = ("movie", "movie_dlc")
@@ -106,6 +146,8 @@ GOLD = "#c8aa6e"
 GOLD_HOVER = "#e0c478"
 TEXT = "#f0e6d2"
 MUTED = "#aaa394"
+UI_FONT = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
+MONO_FONT = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
 
 BLOCKING_EXECUTABLES = {
     "eldenring.exe": "Elden Ring",
@@ -125,43 +167,29 @@ class SteamBuildInfo:
     status: str
 
 
-class UnsupportedBuildError(CompatibilityError):
-    """Versione rifiutata; conserva se il rilevamento ha preceduto ogni scrittura."""
+class GameFilesCompatibilityError(CompatibilityError):
+    """I file reali non corrispondono al profilo omologato del payload."""
 
-    code = "ERITA-COMPAT-001"
+    code = "ERITA-FILES-001"
 
-    def __init__(
-        self, build_info: SteamBuildInfo, *, before_game_writes: bool
-    ) -> None:
-        self.build_info = build_info
+    def __init__(self, detail: str, *, before_game_writes: bool) -> None:
         self.before_game_writes = before_game_writes
-        found = (
-            f"Steam BuildID {build_info.build_id}"
-            if build_info.build_id
-            else {
-                "manifest_missing": "manifesto Steam non trovato",
-                "manifest_unreadable": "manifesto Steam senza accesso in lettura",
-                "buildid_missing": "manifesto Steam senza BuildID",
-                "layout_unknown": "cartella fuori dalla struttura attesa di Steam",
-            }.get(build_info.status, "Steam BuildID non identificato")
-        )
         safety_message = (
-            "Il patcher si è fermato prima di caricare i file audio. Nessun "
-            "file è stato modificato."
+            "Il patcher si è fermato prima di caricare il payload. Nessun file è "
+            "stato modificato."
             if before_game_writes
-            else "La modifica è stata rilevata durante la rivalidazione di sicurezza. "
-            "L'installazione non è stata confermata; conserva i backup e verifica i "
-            "file tramite Steam prima di aprire il gioco."
+            else "La modifica è stata rilevata durante la riconvalida finale. La "
+            "sostituzione dei file non è stata autorizzata."
         )
         super().__init__(
-            f"VERSIONE DEL GIOCO NON SUPPORTATA [{self.code}]\n\n"
-            f"Rilevato: {found}.\n"
-            f"Supportato da ERITA {PATCHER_VERSION}: Elden Ring "
-            f"{SUPPORTED_GAME_VERSION}, Steam BuildID "
-            f"{', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))}.\n\n"
-            "Questa versione non ha ancora un profilo compatibile. "
-            f"{safety_message} Usa 'Copia "
-            "diagnostica' per inviarci i dati tecnici senza informazioni personali."
+            f"FILE DEL GIOCO NON OMOLOGATI [{self.code}]\n\n"
+            f"{detail}\n\n"
+            "Copiare un appmanifest di un'altra versione non aggiorna il gioco e non "
+            "supera questa verifica. Usa Steam per aggiornare o verificare l'integrità "
+            "dei file. Una versione vecchia può essere supportata solo con un profilo e "
+            "un payload propri, ricostruiti e convalidati sui suoi file "
+            "reali.\n\n"
+            f"{safety_message}"
         )
 
 
@@ -194,8 +222,13 @@ def _steam_roots() -> list[Path]:
                 ):
                     try:
                         with winreg.OpenKey(hive, subkey) as key:
-                            value = winreg.QueryValueEx(key, "InstallPath")[0]
-                        roots.append(Path(value))
+                            for value_name in ("InstallPath", "SteamPath"):
+                                try:
+                                    value = winreg.QueryValueEx(key, value_name)[0]
+                                except OSError:
+                                    continue
+                                if isinstance(value, str) and value.strip():
+                                    roots.append(Path(value))
                     except OSError:
                         continue
         except ImportError:
@@ -204,20 +237,53 @@ def _steam_roots() -> list[Path]:
             (Path(r"C:\Program Files (x86)\Steam"), Path(r"C:\Program Files\Steam"))
         )
     else:
+        for variable in ("STEAM_COMPAT_CLIENT_INSTALL_PATH", "STEAM_HOME"):
+            configured = os.environ.get(variable)
+            if configured:
+                configured_root = Path(configured).expanduser()
+                if configured_root.is_absolute():
+                    roots.append(configured_root)
+        xdg_data = os.environ.get("XDG_DATA_HOME")
+        if xdg_data:
+            xdg_root = Path(xdg_data).expanduser()
+            if xdg_root.is_absolute():
+                roots.append(xdg_root / "Steam")
         roots.extend(
             (
                 Path.home() / ".steam" / "steam",
+                Path.home() / ".steam" / "root",
                 Path.home() / ".local" / "share" / "Steam",
+                Path.home()
+                / ".var"
+                / "app"
+                / "com.valvesoftware.Steam"
+                / ".local"
+                / "share"
+                / "Steam",
+                Path.home()
+                / "snap"
+                / "steam"
+                / "common"
+                / ".local"
+                / "share"
+                / "Steam",
             )
         )
     unique: list[Path] = []
     seen: set[str] = set()
     for root in roots:
-        key = str(root).casefold()
+        key = _path_key(root)
         if key not in seen:
             unique.append(root)
             seen.add(key)
     return unique
+
+
+def _path_key(path: str | Path) -> str:
+    """Deduplica i percorsi senza unire maiuscole e minuscole sui filesystem POSIX."""
+
+    value = os.path.abspath(os.fspath(path))
+    return value.casefold() if sys.platform == "win32" else value
 
 
 def _steam_libraries(root: Path) -> list[Path]:
@@ -228,8 +294,18 @@ def _steam_libraries(root: Path) -> list[Path]:
     except OSError:
         return libraries
     for value in re.findall(r'"path"\s+"([^"]+)"', content):
-        libraries.append(Path(value.replace("\\\\", "\\")))
-    return libraries
+        normalized = value.replace("\\\\", "\\") if sys.platform == "win32" else value
+        candidate = Path(normalized).expanduser()
+        if candidate.is_absolute():
+            libraries.append(candidate)
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for library in libraries:
+        key = _path_key(library)
+        if key not in seen:
+            unique.append(library)
+            seen.add(key)
+    return unique
 
 
 def find_elden_ring() -> Path | None:
@@ -239,28 +315,136 @@ def find_elden_ring() -> Path | None:
             if (candidate / "eldenring.exe").is_file() and (
                 candidate / "sd" / "sd.bhd"
             ).is_file():
-                return candidate.resolve()
+                # Conserva il percorso lessicale della libreria. ``resolve()`` può
+                # attraversare una junction e perdere lo ``steamapps`` che contiene il
+                # manifesto usato solo per indicare il BuildID ausiliario.
+                return candidate.absolute()
     return None
 
 
-def steam_build_info(game_dir: Path) -> SteamBuildInfo:
-    """Legge passivamente il BuildID e conserva il motivo quando non esiste."""
+def _manifest_build_info(manifest_path: Path) -> tuple[SteamBuildInfo, str | None]:
+    """Legge un appmanifest senza esporne il contenuto né dedurne la compatibilità."""
 
-    try:
-        steamapps = game_dir.parents[2]
-    except IndexError:
-        return SteamBuildInfo(None, "layout_unknown")
-    manifest_path = steamapps / f"appmanifest_{STEAM_APP_ID}.acf"
     try:
         content = manifest_path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
-        return SteamBuildInfo(None, "manifest_missing")
+        return SteamBuildInfo(None, "manifest_missing"), None
     except OSError:
-        return SteamBuildInfo(None, "manifest_unreadable")
+        return SteamBuildInfo(None, "manifest_unreadable"), None
+    install_match = re.search(r'"installdir"\s+"([^"]+)"', content, re.IGNORECASE)
+    install_dir = install_match.group(1) if install_match else None
     match = re.search(r'"buildid"\s+"(\d+)"', content, re.IGNORECASE)
     if not match:
-        return SteamBuildInfo(None, "buildid_missing")
-    return SteamBuildInfo(match.group(1), "identified")
+        return SteamBuildInfo(None, "buildid_missing"), install_dir
+    return SteamBuildInfo(match.group(1), "identified"), install_dir
+
+
+def _same_directory_identity(left: Path, right: Path) -> bool:
+    """Confronta le identità reali e fallisce in modo sicuro se una non è leggibile."""
+
+    try:
+        return left.samefile(right)
+    except OSError:
+        return False
+
+
+def _direct_manifest_paths(
+    game_dir: Path, game_path_hints: tuple[Path, ...]
+) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for candidate in (game_dir, *game_path_hints):
+        try:
+            steamapps = candidate.parents[2]
+        except IndexError:
+            continue
+        manifest = steamapps / f"appmanifest_{STEAM_APP_ID}.acf"
+        key = _path_key(manifest)
+        if key not in seen:
+            paths.append(manifest)
+            seen.add(key)
+    return tuple(paths)
+
+
+def steam_build_info(
+    game_dir: Path, *, game_path_hints: tuple[Path, ...] = ()
+) -> SteamBuildInfo:
+    """Legge il BuildID ausiliario solo dal manifesto collegato a questa cartella."""
+
+    # Un'indicazione lessicale serve solo a ritrovare ``steamapps`` dopo che
+    # ``resolve()`` attraversa una junction. Non concede autorità: deve
+    # continuare a puntare alla stessa identità fisica di ``game_dir`` in
+    # tutte le convalide, compreso il precommit.
+    verified_hints = tuple(
+        hint
+        for hint in game_path_hints
+        if _same_directory_identity(hint, game_dir)
+    )
+    direct_manifests = _direct_manifest_paths(game_dir, verified_hints)
+    direct_missing = False
+    direct_failures: list[str] = []
+    saw_unlinked_manifest = False
+    for manifest_path in direct_manifests:
+        info, install_dir = _manifest_build_info(manifest_path)
+        if info.status == "manifest_missing":
+            direct_missing = True
+            continue
+        if info.status == "manifest_unreadable":
+            direct_failures.append(info.status)
+            continue
+        if not install_dir:
+            direct_failures.append("installdir_missing")
+            continue
+        registered_game = (
+            manifest_path.parent / "common" / install_dir / "Game"
+        )
+        if _same_directory_identity(registered_game, game_dir):
+            return info
+        saw_unlinked_manifest = True
+
+    # Se ``resolve()`` ha attraversato una junction, recupera il manifesto
+    # dall'elenco ufficiale delle librerie Steam. Accettalo solo quando la cartella
+    # registrata e quella scelta sono la stessa identità nel filesystem.
+    seen_manifests = {
+        _path_key(path) for path in direct_manifests
+    }
+    fallback_failures: list[str] = []
+    for steam_root in _steam_roots():
+        for library in _steam_libraries(steam_root):
+            manifest_path = (
+                library / "steamapps" / f"appmanifest_{STEAM_APP_ID}.acf"
+            )
+            key = _path_key(manifest_path)
+            if key in seen_manifests:
+                continue
+            seen_manifests.add(key)
+            info, install_dir = _manifest_build_info(manifest_path)
+            if info.status == "manifest_missing":
+                continue
+            if info.status == "manifest_unreadable":
+                fallback_failures.append(info.status)
+                continue
+            if not install_dir:
+                fallback_failures.append("installdir_missing")
+                continue
+            registered_game = library / "steamapps" / "common" / install_dir / "Game"
+            if _same_directory_identity(registered_game, game_dir):
+                return info
+            saw_unlinked_manifest = True
+
+    if direct_failures:
+        return SteamBuildInfo(None, direct_failures[0])
+    if saw_unlinked_manifest:
+        return SteamBuildInfo(None, "manifest_not_linked")
+    if fallback_failures:
+        return SteamBuildInfo(None, fallback_failures[0])
+    if direct_missing or direct_manifests:
+        return SteamBuildInfo(None, "manifest_missing")
+    try:
+        game_dir.parents[2]
+    except IndexError:
+        return SteamBuildInfo(None, "layout_unknown")
+    return SteamBuildInfo(None, "manifest_missing")
 
 
 def steam_build_id(game_dir: Path) -> str | None:
@@ -276,17 +460,38 @@ def require_supported_build(
     before_game_writes: bool = True,
 ) -> str:
     info = build_info or steam_build_info(game_dir)
-    if info.build_id not in SUPPORTED_STEAM_BUILD_IDS:
-        raise UnsupportedBuildError(
-            info, before_game_writes=before_game_writes
+    try:
+        profile_id = validate_game_archive_profile(
+            game_dir,
+            SUPPORTED_AUDIO_PROFILE,
         )
-    return info.build_id
+    except CompatibilityError as exc:
+        raise GameFilesCompatibilityError(
+            str(exc),
+            before_game_writes=before_game_writes,
+        ) from exc
+    if info.build_id in SUPPORTED_STEAM_BUILD_IDS:
+        return (
+            f"preverifica locale {profile_id} (il manifesto indica il BuildID atteso "
+            f"{info.build_id}; Steam e online non sono confermati dal manifesto)"
+        )
+    if info.build_id is not None:
+        return (
+            f"preverifica locale {profile_id} (il manifesto indica il BuildID "
+            f"{info.build_id}; Steam e online non confermati)"
+        )
+    return f"preverifica locale {profile_id} (Steam e online non confermati)"
 
 
 def running_blockers() -> list[str]:
     """Rileva i processi in esecuzione; non li termina mai automaticamente."""
+    if sys.platform.startswith("linux"):
+        return _linux_running_blockers()
     if sys.platform != "win32":
-        return []
+        raise PatcherError(
+            f"Il sistema {sys.platform!r} non ha ancora una verifica sicura dei "
+            "processi. Nessun file sarà modificato."
+        )
     system_root = os.environ.get("SystemRoot")
     tasklist = Path(system_root, "System32", "tasklist.exe") if system_root else None
     if tasklist is None or not tasklist.is_file():
@@ -322,6 +527,101 @@ def running_blockers() -> list[str]:
         for executable, label in BLOCKING_EXECUTABLES.items()
         if executable in names
     ]
+
+
+def _linux_process_name(value: bytes | str) -> str:
+    if isinstance(value, bytes):
+        value = os.fsdecode(value)
+    value = value.strip().strip('"')
+    if not value:
+        return ""
+    return re.split(r"[\\/]", value)[-1].casefold()
+
+
+def _linux_running_blockers(proc_root: Path = Path("/proc")) -> list[str]:
+    """Ispeziona i processi dell'utente su Linux/Proton e fallisce in modo sicuro."""
+
+    try:
+        current_uid = os.getuid()
+        entries = list(proc_root.iterdir())
+    except (AttributeError, OSError) as exc:
+        raise PatcherError(
+            "Impossibile consultare /proc per confermare che Elden Ring ed "
+            "Easy Anti-Cheat siano chiusi. Nessun file sarà modificato."
+        ) from exc
+
+    inspected = 0
+    names: set[str] = set()
+    for process_dir in entries:
+        if not process_dir.name.isdecimal():
+            continue
+        try:
+            if process_dir.stat().st_uid != current_uid:
+                continue
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise PatcherError(
+                "Impossibile confermare l'identità di un processo in /proc. "
+                "Nessun file sarà modificato."
+            ) from exc
+        inspected += 1
+
+        try:
+            comm = (process_dir / "comm").read_bytes()[:4096]
+            name = _linux_process_name(comm)
+            if name:
+                names.add(name)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise PatcherError(
+                "Impossibile leggere i processi dell'utente in /proc. "
+                "Nessun file sarà modificato."
+            ) from exc
+
+        try:
+            with (process_dir / "cmdline").open("rb") as stream:
+                command_line = stream.read(64 * 1024 + 1)
+            if len(command_line) > 64 * 1024:
+                raise PatcherError(
+                    "Una riga di comando in /proc ha superato il limite sicuro. "
+                    "Nessun file sarà modificato."
+                )
+            for argument in command_line.split(b"\0"):
+                name = _linux_process_name(argument)
+                if name:
+                    names.add(name)
+        except FileNotFoundError:
+            continue
+        except PermissionError as exc:
+            raise PatcherError(
+                "Linux ha negato la lettura dei processi dell'utente. Nessun file "
+                "sarà modificato."
+            ) from exc
+        except OSError as exc:
+            raise PatcherError(
+                "Consultazione dei processi dell'utente su Linux non riuscita. "
+                "Nessun file sarà modificato."
+            ) from exc
+
+    if inspected == 0:
+        raise PatcherError(
+            "Non è stato possibile confermare nessun processo dell'utente in /proc. "
+            "Nessun file sarà modificato."
+        )
+
+    blockers = [
+        label
+        for executable, label in BLOCKING_EXECUTABLES.items()
+        if executable in names
+    ]
+    if any(
+        name.startswith("easyanticheat") and name.endswith(".exe")
+        for name in names
+    ) and not any("Anti-Cheat" in label for label in blockers):
+        blockers.append("Easy Anti-Cheat")
+    return list(dict.fromkeys(blockers))
 
 
 def optional_movie_payload_present(root: Path) -> bool:
@@ -459,7 +759,8 @@ class PatcherApp(ctk.CTk):
             self._record_build_info(build_info, detected)
             self.build_var.set(
                 f"ERITA {PATCHER_VERSION} | target {SUPPORTED_GAME_VERSION} / "
-                f"build {', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} | rilevato: "
+                "BuildID Steam ausiliario atteso "
+                f"{', '.join(sorted(SUPPORTED_STEAM_BUILD_IDS))} | indicato: "
                 f"{build_info.build_id or 'non identificato'}"
             )
             try:
@@ -501,20 +802,21 @@ class PatcherApp(ctk.CTk):
                     ),
                 )
             elif self._last_error_code is None:
-                self._finish_startup_status(build_info)
+                self._finish_startup_status(detected, build_info)
 
-    def _finish_startup_status(self, build_info: SteamBuildInfo) -> None:
-        """Non annuncia mai la compatibilità prima di convalidare il BuildID rilevato."""
+    def _finish_startup_status(
+        self,
+        game_dir: Path,
+        build_info: SteamBuildInfo,
+    ) -> None:
+        """Annuncia solo la preverifica; l'engine autentica il BDT completo."""
 
-        if build_info.build_id not in SUPPORTED_STEAM_BUILD_IDS:
-            error = UnsupportedBuildError(
-                build_info,
-                before_game_writes=True,
-            )
-            detected = build_info.build_id or "non identificato"
+        try:
+            compatibility = require_supported_build(game_dir, build_info)
+        except GameFilesCompatibilityError as error:
             self._set_stage(
-                "unsupported_build",
-                f"Versione non supportata ({detected}) [{error.code}]; "
+                "game_files_unsupported",
+                f"File del gioco non omologati [{error.code}]; "
                 "apri Diagnostica per copiare il rapporto.",
                 finished=True,
             )
@@ -527,11 +829,17 @@ class PatcherApp(ctk.CTk):
                 finished=True,
             )
             return
-        self._set_stage(
-            "ready",
-            "Gioco compatibile rilevato; pronto per l'installazione.",
-            finished=True,
+        ready_message = (
+            "Preverifica dei file completata; il manifesto indica il BuildID "
+            "atteso, ma non conferma Steam e online. Pronto per la convalida completa."
+            if build_info.build_id in SUPPORTED_STEAM_BUILD_IDS
+            else (
+                "Preverifica dei file completata; manifesto facoltativo, "
+                "Steam e online non confermati. Pronto per la convalida completa."
+            )
         )
+        self._set_stage("ready", ready_message, finished=True)
+        self._log(f"Preverifica locale completata: {compatibility}.")
 
     def _build_interface(self) -> None:
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -539,13 +847,13 @@ class PatcherApp(ctk.CTk):
         ctk.CTkLabel(
             header,
             text="ELDEN RING  •  DOPPIAGGIO ITA",
-            font=ctk.CTkFont("Segoe UI", 24, "bold"),
+            font=ctk.CTkFont(UI_FONT, 24, "bold"),
             text_color=GOLD,
         ).pack(anchor="w")
         ctk.CTkLabel(
             header,
             textvariable=self.build_var,
-            font=ctk.CTkFont("Segoe UI", 12),
+            font=ctk.CTkFont(UI_FONT, 12),
             text_color=MUTED,
         ).pack(anchor="w", pady=(4, 0))
 
@@ -565,13 +873,13 @@ class PatcherApp(ctk.CTk):
                 )
                 if INSTALLATION_SUSPENDED
                 else (
-                    "✓ ERITA 0.9.5 PER ELDEN RING 1.17.1\n"
-                    "Pacchetto piatto convalidato; avvia il gioco normalmente da Steam."
+                    "✓ ERITA 0.9.7 PER ELDEN RING 1.17.1\n"
+                    "Pacchetto convalidato; i file del gioco verranno controllati prima dell'installazione."
                 )
             ),
             justify="left",
             anchor="w",
-            font=ctk.CTkFont("Segoe UI", 12),
+            font=ctk.CTkFont(UI_FONT, 12),
             text_color="#ffd7d9" if INSTALLATION_SUSPENDED else "#d8f4e4",
         ).pack(fill="x", padx=14, pady=10)
 
@@ -582,7 +890,7 @@ class PatcherApp(ctk.CTk):
             text="Cartella del gioco (…/ELDEN RING/Game)",
             text_color=TEXT,
             anchor="w",
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            font=ctk.CTkFont(UI_FONT, 13, "bold"),
         ).pack(fill="x", padx=16, pady=(13, 6))
         row = ctk.CTkFrame(path_card, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=(0, 14))
@@ -615,7 +923,7 @@ class PatcherApp(ctk.CTk):
                 else "Installa doppiaggio"
             ),
             height=42,
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            font=ctk.CTkFont(UI_FONT, 13, "bold"),
             fg_color="#5a3033" if INSTALLATION_SUSPENDED else GOLD,
             hover_color="#754046" if INSTALLATION_SUSPENDED else GOLD_HOVER,
             text_color="#f1d7d8" if INSTALLATION_SUSPENDED else "#111116",
@@ -661,7 +969,7 @@ class PatcherApp(ctk.CTk):
             textvariable=self.status_var,
             text_color=TEXT,
             anchor="w",
-            font=ctk.CTkFont("Segoe UI", 12, "bold"),
+            font=ctk.CTkFont(UI_FONT, 12, "bold"),
         )
         self.status_label.pack(fill="x", padx=16, pady=(14, 6))
         self.progress = ctk.CTkProgressBar(
@@ -673,7 +981,7 @@ class PatcherApp(ctk.CTk):
             progress_card,
             fg_color="#0d0d14",
             text_color="#d6d0c3",
-            font=ctk.CTkFont("Consolas", 11),
+            font=ctk.CTkFont(MONO_FONT, 11),
             wrap="word",
         )
         self.log_box.pack(fill="both", expand=True, padx=16, pady=(0, 14))
@@ -682,7 +990,7 @@ class PatcherApp(ctk.CTk):
             "Modalità sicura attiva. Il programma non scarica né esegue codice remoto e non termina processi."
         )
         self._log(
-            "Usa sempre lo stesso account Windows e ripristina l'audio prima di spostare la libreria Steam."
+            "Usa sempre lo stesso utente del sistema e ripristina l'audio prima di spostare la libreria Steam."
         )
 
     def _browse(self) -> None:
@@ -748,9 +1056,8 @@ class PatcherApp(ctk.CTk):
         self._status(message)
 
     def _record_error(self, exc: BaseException) -> tuple[str, str, str]:
-        if isinstance(exc, UnsupportedBuildError):
+        if isinstance(exc, (GameFilesCompatibilityError, ArchiveProfileError)):
             code = exc.code
-            self._record_build_info(exc.build_info)
         elif isinstance(exc, InstallationSuspendedError):
             code = exc.code
         elif isinstance(exc, PermissionError):
@@ -911,7 +1218,7 @@ class PatcherApp(ctk.CTk):
             anchor="w",
             wraplength=700,
             text_color=TEXT,
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            font=ctk.CTkFont(UI_FONT, 13, "bold"),
         ).pack(fill="x", padx=22, pady=(20, 10))
         ctk.CTkLabel(
             dialog,
@@ -929,7 +1236,7 @@ class PatcherApp(ctk.CTk):
             dialog,
             fg_color="#0d0d14",
             text_color="#d6d0c3",
-            font=ctk.CTkFont("Consolas", 11),
+            font=ctk.CTkFont(MONO_FONT, 11),
             wrap="none",
         )
         report_box.pack(fill="both", expand=True, padx=22, pady=(0, 14))
@@ -1188,6 +1495,7 @@ class PatcherApp(ctk.CTk):
                 "Chiudi manualmente prima di continuare: " + ", ".join(blockers) + "."
             )
         self._set_stage("game_directory", "Convalida della cartella del gioco...")
+        lexical_game_dir = Path(selected_path).expanduser().absolute()
         game_dir = validate_game_directory(selected_path)
         self._set_stage("backup_check", "Controllo dei recuperi in sospeso...")
         pending = self._pending_transactions(game_dir)
@@ -1196,13 +1504,34 @@ class PatcherApp(ctk.CTk):
                 "Rilevata una transazione interrotta. Verrà usato il backup verificato per "
                 "completare questo recupero."
             )
-        self._set_stage("steam_build", "Identificazione della versione installata tramite Steam...")
-        build_info = steam_build_info(game_dir)
+        self._set_stage(
+            "steam_build",
+            "Lettura del registro ausiliario di Steam e convalida dei file del gioco...",
+        )
+        build_info = steam_build_info(
+            game_dir,
+            game_path_hints=(lexical_game_dir,),
+        )
         self._record_build_info(build_info, game_dir)
-        return game_dir, require_supported_build(game_dir, build_info)
+        try:
+            compatibility = require_supported_build(game_dir, build_info)
+        except GameFilesCompatibilityError:
+            if not pending:
+                raise
+            # Il journal può trovarsi proprio nell'intervallo sicuro in cui il BDT
+            # attivo è stato rinominato in rollback. PatchEngine recupera e autentica
+            # quel nome prima di ripetere il profilo; non usare il manifesto come scorciatoia.
+            self._log(
+                "Il profilo locale verrà riconvalidato dopo il recupero "
+                "autenticato della transazione interrotta."
+            )
+            compatibility = "recupero transazionale in sospeso"
+        return game_dir, compatibility
 
     @staticmethod
-    def _precommit_guard(game_dir: Path) -> None:
+    def _precommit_guard(
+        game_dir: Path, selected_path: str | Path | None = None
+    ) -> None:
         blockers = running_blockers()
         if blockers:
             raise PatcherError(
@@ -1211,7 +1540,17 @@ class PatcherApp(ctk.CTk):
                 + ", ".join(blockers)
                 + ". Nessun file è stato sostituito."
             )
-        require_supported_build(game_dir, before_game_writes=False)
+        hints = (
+            (Path(selected_path).expanduser().absolute(),)
+            if selected_path is not None
+            else ()
+        )
+        build_info = steam_build_info(game_dir, game_path_hints=hints)
+        require_supported_build(
+            game_dir,
+            build_info,
+            before_game_writes=False,
+        )
         if optional_movie_payload_present(APP_ROOT):
             raise CompatibilityError(
                 "Una cartella movie/movie_dlc è apparsa durante la preparazione. È "
@@ -1231,9 +1570,10 @@ class PatcherApp(ctk.CTk):
 
     def _install_worker(self, selected_path: str) -> None:
         try:
-            game_dir, build_id = self._validated_context(selected_path)
+            game_dir, compatibility = self._validated_context(selected_path)
             self._log(
-                f"Steam build target riconosciuto: {build_id} (gioco {SUPPORTED_GAME_VERSION})"
+                f"Preverifica locale completata: {compatibility} "
+                f"(target {SUPPORTED_GAME_VERSION})"
             )
 
             if INSTALLATION_SUSPENDED:
@@ -1260,7 +1600,10 @@ class PatcherApp(ctk.CTk):
             engine = PatchEngine(
                 game_dir,
                 log=self._log,
-                precommit_guard=lambda: self._precommit_guard(game_dir),
+                precommit_guard=lambda: self._precommit_guard(
+                    game_dir, selected_path
+                ),
+                archive_profile=SUPPORTED_AUDIO_PROFILE,
             )
             self._set_stage(
                 "archive_validation",
@@ -1328,10 +1671,10 @@ class PatcherApp(ctk.CTk):
 
             self._set_stage(
                 "precommit",
-                "Riconvalida di gioco, EAC e Steam build prima della sostituzione...",
+                "Riconvalida di file del gioco, EAC e registro Steam prima della sostituzione...",
                 write_state="patch_not_started",
             )
-            self._precommit_guard(game_dir)
+            self._precommit_guard(game_dir, selected_path)
 
             self._set_stage(
                 "apply",
@@ -1357,17 +1700,16 @@ class PatcherApp(ctk.CTk):
             self._ui(
                 lambda: messagebox.showinfo(
                     "Installazione completata",
-                    "Il doppiaggio audio è stato applicato e verificato.\n\n"
-                    "Apri Elden Ring normalmente tramite Steam; questo installer non "
-                    "sostituisce né disattiva l'Easy Anti-Cheat.",
+                    INSTALLATION_SUCCESS_MESSAGE,
                 )
             )
         except PermissionError as exc:
+            platform_name = "Windows" if sys.platform == "win32" else "Linux"
             message = (
-                "Windows ha negato l'accesso ai file del gioco. Chiudi il gioco e l'Easy "
-                "Anti-Cheat. Configura una libreria Steam scrivibile dal tuo utente "
-                "oppure modifica solo il permesso della cartella del gioco; non eseguire il patcher "
-                f"come amministratore.\n\nDettaglio: {exc}"
+                f"{platform_name} ha negato l'accesso ai file del gioco. Chiudi il gioco e "
+                "l'Easy Anti-Cheat. Configura una libreria Steam scrivibile dal tuo utente "
+                "oppure modifica solo il permesso della cartella del gioco; non eseguire il "
+                f"patcher come amministratore/root.\n\nDettaglio: {exc}"
             )
             self._report_failure(
                 title="ERITA - permesso negato",
@@ -1410,20 +1752,26 @@ class PatcherApp(ctk.CTk):
 
     def _restore_worker(self, selected_path: str) -> None:
         try:
-            game_dir, build_id = self._validated_context(selected_path)
-            self._log(f"Ripristino richiesto per lo Steam build {build_id}.")
+            game_dir, compatibility = self._validated_context(selected_path)
+            self._log(
+                "Ripristino richiesto dopo la preverifica locale: "
+                f"{compatibility}."
+            )
             failures: list[str] = []
             audio_restored = False
 
             engine = PatchEngine(
                 game_dir,
                 log=self._log,
-                precommit_guard=lambda: self._precommit_guard(game_dir),
+                precommit_guard=lambda: self._precommit_guard(
+                    game_dir, selected_path
+                ),
+                archive_profile=SUPPORTED_AUDIO_PROFILE,
             )
             try:
                 self._set_stage(
                     "restore_validation",
-                    "Convalida dei file e del backup del build attuale in corso...",
+                    "Convalida dei file e del backup del profilo omologato...",
                     write_state="recovery_may_run",
                 )
                 engine.load_archives()
@@ -1512,6 +1860,10 @@ def main() -> int:
         root.destroy()
         return 2
     app = PatcherApp()
+    if os.environ.get("ERPTBR_GUI_SMOKE") == "1":
+        app.update_idletasks()
+        app.destroy()
+        return 0
     app.mainloop()
     return 0
 
