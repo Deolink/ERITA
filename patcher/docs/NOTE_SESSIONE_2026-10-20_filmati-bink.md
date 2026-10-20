@@ -3,8 +3,8 @@
 > Appunto di lavoro per riprendere in un'altra sessione (di Claude o di una persona). Non è
 > un documento di riferimento: la procedura stabile sta in
 > `doppiaggio/docs/GUIDA_FILMATI_TECNICA.pdf`. Base di partenza: `main` a `d3d8bbc`.
-> **Niente è committato**: gli script nuovi sono in `tools/filmati/` (non tracciati) e le
-> guide sono in `doppiaggio/docs/` (non tracciate nel repo `doppiaggio`).
+> **Committato in locale, non pushato**: in ERITA `c19891c` (script in `tools/filmati/` e
+> questa nota), nel repo `doppiaggio` `480a1bc` (guide, pacchetto filmato, documenti).
 
 ## In breve
 
@@ -108,9 +108,10 @@ audio sono tutte a 48 kHz, codifica Bink Audio DCT:
 | WAV estratti dall'utente (ID 0–4) | `D:\SteamLibrary\steamapps\common\ELDEN RING\Game\movie\10010010_id*.wav` | no: **da spostare fuori dalla cartella del gioco** |
 | basi senza voce A e B, da ascoltare | `C:\Users\leand\Downloads\bk2-audio\10010010_id4_senza_voce_{A_ricostruito,B_sottratto}.wav` | no |
 | pacchetto per i doppiatori | `C:\Users\leand\Downloads\bk2-audio\per-doppiatori\` (`01_guida_voce_inglese`, `02_base_musica_senza_voce` = B, `03_mix_originale_inglese`) | no |
-| guida tecnica | `doppiaggio/docs/GUIDA_FILMATI_TECNICA.{html,pdf}` | non tracciata (repo `doppiaggio`) |
-| guida per i doppiatori | `doppiaggio/docs/GUIDA_FILMATI_DOPPIATORI.{html,pdf}` | non tracciata (repo `doppiaggio`) |
-| script | `tools/filmati/` | non tracciati (repo ERITA) |
+| guida tecnica | `doppiaggio/docs/GUIDA_FILMATI_TECNICA.{html,pdf}` | sì (`doppiaggio`, `480a1bc`) |
+| guida per i doppiatori | `doppiaggio/docs/GUIDA_FILMATI_DOPPIATORI.{html,pdf}` | sì (`doppiaggio`, `480a1bc`) |
+| pacchetto filmato | `doppiaggio/pacchetti/Filmato_iniziale/`; zip in `doppiaggio/distribuzione/Pacchetti/` | sì, tranne i tre wav e lo zip (si rigenerano) |
+| script | `tools/filmati/` | sì (ERITA, `c19891c`) |
 
 Le guide seguono lo stile di `GUIDA_PACCHETTI.html`: stesso CSS, PDF stampato con Edge
 headless come fa `doppiaggio/tools/guida.py`. Non sono generate da `guida.py`: per modificarle
