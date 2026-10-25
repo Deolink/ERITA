@@ -7,7 +7,11 @@
 > `NOTE_SESSIONE_2026-10-20_workflow-consegne.md`.
 >
 > **Pushato tutto:** `doppiaggio` `49aff3c`, ERITA questa nota. Il punto da cui ripartire è
-> la §2 di `doppiaggio/docs/RIPARTIRE_DA_QUI.md`, "In breve, al 25 ottobre 2026".
+> la §2 di `doppiaggio/docs/RIPARTIRE_DA_QUI.md`, "In breve, al 25 ottobre 2026, sera".
+>
+> **Superata in parte:** la regola dei tagli delle §5 e §6 (-45 dBFS e 50 ms anche in coda)
+> troncava alcune code. Il 25 ottobre pomeriggio è stata cambiata e i tagli rifatti: vedi
+> `NOTE_SESSIONE_2026-10-25_coda-dei-tagli.md`.
 
 ## In breve
 
