@@ -5,7 +5,7 @@
 > `doppiaggio/docs/WORKFLOW_CONSEGNE.md`, "Il report delle battute da rifare" e "Togliere il
 > silenzio: `taglia`". Segue `NOTE_SESSIONE_2026-10-24_drive-consegne.md` e ne corregge le §5 e §6.
 >
-> **Committato il 25 ottobre sera, non ancora pushato.** Il punto da cui ripartire è la §2 di
+> **Pushato il 25 ottobre sera.** Il punto da cui ripartire è la §2 di
 > `doppiaggio/docs/RIPARTIRE_DA_QUI.md`, "In breve, al 25 ottobre 2026, sera" (repo privato
 > del doppiaggio, dove ci sono anche gli elenchi per doppiatore).
 
@@ -104,10 +104,9 @@ recuperare, quando c'è, sta più in testa che in coda.
 
 ## 6. Per continuare
 
-1. Pushare i commit del 25 ottobre sera (in `doppiaggio/` e questa nota).
-2. Ricevere la consegna nuova.
-3. Far riregistrare le 65 battute: elenco per doppiatore in
+1. Ricevere la consegna nuova.
+2. Far riregistrare le 65 battute: elenco per doppiatore in
    `doppiaggio/docs/RIPARTIRE_DA_QUI.md` (§7, voce 8).
-4. Installare le 897 battute nel gioco e ascoltarle, a partire da quelle tagliate in testa.
-5. Pulizia facoltativa in `doppiaggio/distribuzione/`: le cartelle
+3. Installare le 897 battute nel gioco e ascoltarle, a partire da quelle tagliate in testa.
+4. Pulizia facoltativa in `doppiaggio/distribuzione/`: le cartelle
    `ERITA-Controllo.nuova-*`.
