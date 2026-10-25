@@ -1,9 +1,13 @@
-# Nota di sessione — 24 ottobre 2026: Drive, taglio del silenzio, prova da zero, pannello e strumento del socio
+# Nota di sessione — 24 e 25 ottobre 2026: Drive, taglio del silenzio, prova da zero, pannello e strumento del socio
 
 > Appunto di lavoro per riprendere in un'altra sessione (di Claude o di una persona). Non è
 > un documento di riferimento: la procedura stabile sta in
 > `doppiaggio/docs/WORKFLOW_CONSEGNE.md`, sezioni "Una volta per postazione: collegare
-> Drive" e "Quando arrivano consegne". Segue `NOTE_SESSIONE_2026-10-20_workflow-consegne.md`.
+> Drive", "Quando arrivano consegne" e "Se qualcosa non va". Segue
+> `NOTE_SESSIONE_2026-10-20_workflow-consegne.md`.
+>
+> **Pushato tutto:** `doppiaggio` `49aff3c`, ERITA questa nota. Il punto da cui ripartire è
+> la §2 di `doppiaggio/docs/RIPARTIRE_DA_QUI.md`, "In breve, al 25 ottobre 2026".
 
 ## In breve
 
@@ -220,13 +224,49 @@ confronta. `--ripristina` rimette lo stato di prima.
   percorso si normalizza prima del controllo, e nessuno dei due usa più il server di file
   generico. Provato con curl: le varianti con `..` e `%2e%2e` danno 404.
 
-## 10. Per continuare
+## 10. 25 ottobre: la chiave che "non c'era", e l'antivirus
+
+- **La chiave di Drive era finita nella cartella privata dell'app Claude.** L'app desktop
+  di Claude è un'app pacchettizzata di Windows (MSIX): quello che i suoi comandi scrivono
+  in `%APPDATA%` Windows lo mette in `%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\`,
+  e lo vedono solo i programmi avviati da Claude. Il 24 ottobre la chiave l'aveva copiata un
+  comando di Claude, quindi il `lavora.cmd` dell'utente non la trovava. Tutti i giri del 24
+  li aveva lanciati Claude, ed è per questo che fino ad allora funzionava.
+  - **Rimedio:** *Collega Drive* lanciato dal pannello aperto dall'utente, che gira con il
+    suo utente normale e ha copiato la chiave nel vero `%APPDATA%\ERITA`.
+  - **Regola per le prossime sessioni:** Claude non scrive file che servono all'utente in
+    `%APPDATA%`/`%LOCALAPPDATA%`. Se serve, la copia la fa un programma dell'utente. Le
+    cartelle del progetto non hanno il problema.
+- **Connessioni chiuse a metà.** Subito dopo, il `python.exe` dell'utente riceveva da Google
+  `RemoteDisconnected` o `SSL EOF` per qualche minuto, poi è ripartito da solo. Proxy non ce
+  n'erano. Sulla postazione c'è un antivirus con firewall e scudo web: è il sospetto
+  principale, non verificato. `drive.py` ora trasforma queste chiusure, e i download
+  interrotti, in un messaggio chiaro con il suggerimento dell'eccezione per `python.exe`.
+  Prima uscivano come traceback.
+- **`impacchetta_socio.py`** costruisce in una cartella nuova: un file aperto nella
+  cartella di prima, come la guida in un lettore PDF, fermava la ricostruzione dello zip.
+  Lo zip del socio è rifatto (`ERITA-Controllo_2026-10-25.zip`): quello del 24 non va
+  usato.
+- **Prima del push** i dati personali sono stati tolti dalla storia da pubblicare:
+  - questa nota, nel repo pubblico, non ha né l'account di servizio né i nomi dei
+    doppiatori;
+  - nelle schermate della guida del socio ci sono nomi di fantasia;
+  - i commit da pushare sono stati uniti, così le versioni vecchie non sono finite su GitHub.
+- **Git Credential Manager** ha chiesto di nuovo l'accesso a GitHub durante un push.
+
+## 11. Per continuare
 
 1. **Nel gioco ci sono ancora solo le 101 battute di Gostoc**, mentre `patch_data` ne ha
    938. Per sentire le nuove: pannello, Apri ERITA, Ripristina, Installa, Verifica.
 2. Ascoltare le battute tagliate in testa (36), segnate "da ascoltare" nei report.
 3. Far riregistrare le battute segnate "da riregistrare" e chiarire le due battute con la
-   stessa registrazione: chi, quali righe e cosa dire sono in `doppiaggio/docs/RIPARTIRE_DA_QUI.md`, repo privato del doppiaggio (§7).
-4. Mandare al socio lo zip e la guida, senza passare da Drive: lo zip contiene la chiave.
-5. Piccola cosa: `ricevi_consegna.py` potrebbe ignorare `desktop.ini` e simili dentro gli
+   stessa registrazione: chi, quali righe e cosa dire sono in
+   `doppiaggio/docs/RIPARTIRE_DA_QUI.md`, repo privato del doppiaggio (§7).
+4. Mandare al socio `ERITA-Controllo_2026-10-25.zip`, senza passare da Drive: lo zip
+   contiene la chiave.
+5. Strumento del socio: segnare "superata" una consegna sostituita da una più recente, e
+   provare con il finto Drive il caso dello zip ricaricato.
+6. Piccola cosa: `ricevi_consegna.py` potrebbe ignorare `desktop.ini` e simili dentro gli
    zip.
+7. Pulizia facoltativa: `doppiaggio/prove-da-zero/` (circa 2 GB) e le cartelle
+   `distribuzione/ERITA-Controllo*`.
