@@ -85,9 +85,30 @@ postazione: identici.
   token o file di credenziali; l'indirizzo dell'account di servizio sta solo nel repo
   privato. Le copie della chiave sono tutte fuori da git (`distribuzione/` è esclusa).
 
-## 5. Per continuare
+## 5. La sera: i pacchetti su Drive
+
+- **`lavora aggiorna-pacchetti <file> [personaggi] [--prova]`**: confronta per md5 i file
+  indicati dei pacchetti locali con quelli in `DialoguePacks` e sostituisce solo quelli
+  diversi, nello stesso file su Drive (stesso ID e proprietario, niente duplicati). Non
+  tocca mai `lavorazione.json`.
+- Scrive con un **secondo account di servizio**, Editor solo su `DialoguePacks`, con lo scope
+  completo; la chiave sta solo sulla postazione (`lavora drive-pacchetti <chiave.json>`).
+  Un account di servizio non ha spazio su Drive: modifica i file che ci sono, non ne crea.
+- **Controllo dei pacchetti locali**: tutti completi e coerenti (ogni battuta del copione
+  ha il suo audio inglese, `python/` identico ovunque). Le modifiche non committate a
+  `index.html`, `copione.csv` e `0_LEGGIMI.html` erano solo fine riga.
+- **Confronto con Drive**: 24 pacchetti completi ma con `0_LEGGIMI.html`, `copione.csv`,
+  `index.html` e `server.py` vecchi, aggiornati in 93 file e ora identici alla postazione;
+  **51 ancora della prima versione** (settembre: senza server, Python portatile, lanciatori,
+  con gli audio chiamati in un altro modo), da sostituire a mano. Lo strumento del socio
+  non rifà il "pacchetto intero" da quelli, e lo dice.
+- Ricevuta la consegna nuova: `patch_data` a 1.160 battute; 14 tagli in sospeso.
+- Nel report del socio la nota per il doppiatore sta in una riga sotto la battuta, larga
+  quanto la tabella, come nel copione dei doppiatori.
+
+## 6. Per continuare
 
 1. Mandare al socio lo zip nuovo.
-2. Aggiornare `server.py` nei pacchetti su Drive.
-3. Ricevere la consegna nuova arrivata su Drive.
+2. Sostituire su Drive i 51 pacchetti della prima versione.
+3. Applicare i 14 tagli in sospeso.
 4. Pulire le copie vecchie della chiave (dettaglio nella §7 di `RIPARTIRE_DA_QUI.md`).
