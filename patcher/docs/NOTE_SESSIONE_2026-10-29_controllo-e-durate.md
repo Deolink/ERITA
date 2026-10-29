@@ -83,9 +83,51 @@
   i nomi dei pacchetti completi: senza nomi prende anche quelli della prima versione, a cui
   le pagine nuove non vanno date (punterebbero ad audio che lì hanno un altro nome).
 
-## 4. Per continuare
+## 4. La sera
 
-1. Mandare al socio lo zip del 29 ottobre al posto di quello del 28.
-2. Rifare la foto del report nella guida del socio.
-3. Pushare i commit dei due repo, quando confermato.
-4. Gli altri lavori aperti nella §7 di `RIPARTIRE_DA_QUI.md`.
+- **Una sottocartella di Consegne si ignora.** Su Drive, in Consegne, c'è una cartella di
+  revisione dei pacchetti, con dentro zip che si chiamano come le consegne ma non lo sono.
+  `drive.CARTELLE_IGNORATE` la elenca e `drive.ignorata()` la riconosce (minuscole, senza
+  spazi ai lati). La saltano `lavora scarica`, `lavora nuove` (anche dentro gli
+  zip-cartella che Drive fa scaricando una cartella intera) e lo strumento portatile, su
+  Drive e in locale. `scarica` dice quanti file ha ignorato.
+- **Controllo di tutti i pacchetti su Drive**, sui file in cima, i lanciatori e
+  `python/python.exe`:
+  - i 24 completi sono identici alla postazione, tranne `copione.csv` in quattro: quello
+    locale contiene le note arrivate con le consegne;
+  - i pacchetti della prima versione non hanno server, guida, lanciatori e Python, e hanno
+    gli originali con i nomi vecchi (`<id>.wav`). In due l'utente li aveva già sostituiti a
+    mano: identici.
+- **Cestinare i file vecchi sui pacchetti della prima versione** non si può fare con
+  l'account di servizio: è Editor, non proprietario, e su un Drive personale toglierebbe i
+  file solo dalla cartella, lasciandoli orfani nello spazio del proprietario.
+  - Lo fa `tools/drive_pulisci_prima_versione.gs`, un Google Apps Script lanciato dal
+    proprietario. In ogni pacchetto senza `server.py` sposta nel cestino `audio/` (solo se
+    ha soltanto nomi vecchi), `index.html` e `copione.csv`; lascia `audio-ita/`.
+  - Ha una prova che non tocca niente. Provato prima su un Drive finto (oggetti al posto di
+    `DriveApp`), con i casi: vecchio, già nuovo, nomi misti, completo, filmato.
+  - **La prova vera ha trovato un errore:** il pacchetto del filmato non ha `server.py` ma
+    ha un `copione.csv`, e sarebbe finito tra quelli da pulire. Il conteggio non tornava
+    (50 invece di 49). Corretto: si saltano i pacchetti con `filmato.json` e le cartelle
+    senza `index.html` né `audio/`.
+  - Lanciato su 49 pacchetti: 3.629 audio vecchi nel cestino. Ricontrollato con l'account
+    in sola lettura: nei 49 resta solo `audio-ita/`, il filmato è intatto.
+- **Si carica dalla postazione:** i pacchetti in `pacchetti/<personaggio>/` sono già quelli
+  nuovi. Confrontati con una copia pulita, sono identici file per file; in più c'è solo
+  `audio-ita/` vuota, che non va trascinata, perché Drive non unisce le cartelle con lo
+  stesso nome, ne fa una seconda.
+- **Pulizia:** fatto solo un rapporto (copie di costruzione dello strumento con la chiave,
+  zip vecchi, prove, zip dei pacchetti con le pagine di prima). Niente cancellato.
+- In PowerShell 5.1 un messaggio di commit con le virgolette, passato con `-m`, si spezza in
+  più argomenti: meglio `git commit -F <file>`. E `Set-Content -Encoding utf8` ci aggiunge un
+  BOM in testa.
+
+## 5. Per continuare
+
+1. Caricare i 49 pacchetti svuotati su Drive, poi ricontrollare file per file.
+2. Decidere della consegna nuova su Drive, fuori dalla cartella di revisione, che ha
+   "ADATTAMENTO" nel nome.
+3. Mandare al socio lo zip del 29 ottobre al posto di quello del 28.
+4. Rifare la foto del report nella guida del socio.
+5. La pulizia, dopo conferma.
+6. Gli altri lavori aperti nella §7 di `RIPARTIRE_DA_QUI.md`.
