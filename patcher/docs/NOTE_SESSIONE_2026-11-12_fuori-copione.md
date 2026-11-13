@@ -1,11 +1,11 @@
-# Nota di sessione — dal 4 al 12 novembre 2026: le battute fuori copione le decide il socio
+# Nota di sessione — dal 4 al 13 novembre 2026: le battute fuori copione le decide il socio
 
 > Appunto di lavoro per riprendere in un'altra sessione (di Claude o di una persona). Non è
 > un documento di riferimento: i piani, con le scelte e le prove, stanno in
 > `doppiaggio/docs/`. Segue `NOTE_SESSIONE_2026-11-03_socio-e-durate.md`.
 >
 > Il punto da cui ripartire è la §2 di `doppiaggio/docs/RIPARTIRE_DA_QUI.md`, "Dove siamo
-> (al 12 novembre 2026)".
+> (al 13 novembre 2026)".
 
 ## In breve
 
@@ -107,10 +107,30 @@ Se farle lo decide il socio. Com'è fatto nello strumento:
 
 Nei lavori aperti della §7 di `RIPARTIRE_DA_QUI.md`. In particolare:
 
-- **le decisioni del socio non tornano ancora nei copioni dei doppiatori:** la postazione
-  non legge il file delle decisioni (§3 di `PIANO_REVISIONE_SOCIO.md`);
+- portare le decisioni ai doppiatori ogni volta che il socio ne prende (§6);
 - ricevere le consegne sulla postazione;
 - mandare gli avvisi, pronti dal 10 novembre;
 - guardare il foglio con le colonne nuove e condividerlo;
 - per due personaggi gli esiti del controllo sul ponte non coincidono con quelli dello
   strumento in postazione: da capire.
+
+## 6. Il 13 novembre: le decisioni tornano nei copioni
+
+- **Come:** la postazione scarica le decisioni dal ponte in un file che sta in git
+  (`fonti/decisioni_socio.csv`), e chi costruisce la pagina del copione le applica. Il
+  manifest non cambia: il tipo della battuta resta scritto, la decisione è uno strato sopra.
+  È diverso da quanto pensato il 10 novembre (cambiare il tipo nel manifest), perché dalla
+  versione 22 il tipo è un'etichetta che resta, e così il socio può cambiare idea.
+- **Nel copione del doppiatore:** una battuta decisa "da fare" dice *approvata dal socio — da
+  registrare*, col testo letto o corretto dal socio; una "non fare" resta al suo posto,
+  spenta, con scritto di non registrarla. Una tagliata col testo del socio entra nel copione
+  al suo posto; senza testo dice di aspettarlo.
+- **I comandi:** `lavora.cmd decisioni`, poi `lavora.cmd pubblica` (che le scarica anche da
+  solo). `controlla_allineamento.py` dice se una pagina non ha le decisioni di adesso, e con
+  `--drive` se su Drive ce ne sono di non scaricate.
+- **Pubblicato:** le pagine di tutti e 76 i pacchetti, una per pacchetto, con l'allineamento
+  controllato prima e dopo. Il socio non aveva ancora deciso niente, quindi i copioni dicono
+  le stesse cose di prima; cambiano solo stili e script.
+- **Prove:** 23 controlli sulla pagina di un personaggio con tutti i casi, senza decisioni e
+  con decisioni finte, e la stessa pagina nel browser con i filtri.
+- **Non provato:** il giro con decisioni vere.
