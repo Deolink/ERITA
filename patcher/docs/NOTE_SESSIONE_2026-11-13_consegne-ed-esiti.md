@@ -14,8 +14,8 @@
 - **Kalé e Roderika:** capito perché gli esiti del controllo su Drive non coincidevano con
   quelli dello strumento in postazione. Roderika era giusta. Per Kalé era un limite dello
   strumento del socio, corretto e pubblicato lo stesso giorno.
-- **Trovato e non corretto:** i WAV a 32 bit float di Kenneth Haight, che il controllo della
-  postazione dà "illeggibili" anche se entrano nel gioco.
+- **Kenneth Haight:** i suoi WAV sono a 32 bit in virgola mobile, e il controllo della
+  postazione li dava "illeggibili" anche se entrano nel gioco. Corretto la sera stessa.
 
 ## 1. Le consegne ricevute
 
@@ -40,17 +40,25 @@ ricompone `patch_data`.
 - **Prese in più:** 63 di Margit e 1 di Kalé, da parte finché nessuno le sceglie.
 - Il gioco non è stato toccato: nessuna installazione, nessuna prova nel gioco.
 
-## 2. Kenneth Haight: i WAV a 32 bit float
+## 2. Kenneth Haight: i WAV a 32 bit in virgola mobile
 
-- Le sue 29 registrazioni sono WAV in virgola mobile a 32 bit (formato 3), non PCM.
-- `tools/verifica_consegne.py` legge solo il PCM: le dà tutte "illeggibili", e così il report
-  della consegna e la colonna "da rifare" di `lavora stato`.
-- **È un falso allarme:** Wwise le codifica, le durate tornano contro l'originale e sono
-  tutte e 29 in `patch_data`.
-- Quello che manca davvero è la misura sulla registrazione (durata, silenzi, rumore).
-- **Non guardato:** cosa ne dicono lo strumento del socio e il copione del doppiatore.
-- Due strade, da decidere: far leggere il float al controllo, o chiedere di esportare in PCM
-  a 24 bit.
+- Le sue 29 registrazioni sono WAV in virgola mobile a 32 bit (formato 3), non PCM. È il
+  formato interno di molti programmi di registrazione: non è una registrazione sbagliata.
+- **Chi le leggeva già:** Wwise, che le codifica; `misure.py`, quindi lo strumento del socio
+  (29 ok, nessun problema); `componi`, che misura sul `.wem`. Sono tutte in `patch_data`,
+  lunghe quanto l'originale o un campione in meno.
+- **Chi no:** `tools/verifica_consegne.py`, che usava il modulo `wave` di Python, capace
+  solo di PCM. Le dava tutte "illeggibili", e con lui il report della consegna e la colonna
+  "da rifare" di `lavora stato`. Era un falso allarme, che gonfiava i conti di 29.
+- **Corretto:** quando `wave` non apre il file, `campioni_float` legge campioni e frequenza
+  dai chunk `fmt ` e `data` (virgola mobile a 32 e 64 bit, anche nel formato estensibile).
+  Per il PCM non cambia niente: si passa ancora da `wave`.
+- **Prove:** 21 controlli su WAV finti (virgola mobile, PCM a 8, 16, 24 e 32 bit, file
+  troncati, compressi, non WAV), con gli stessi campioni di `misure.leggi_wav`, e sulle 29
+  registrazioni vere. In `manifest/consegne.csv` cambiano solo le 29 righe di Kenneth
+  Haight, da "illeggibile" a "ok"; il report della consegna dice 29 a posto.
+- **Non guardato:** se quelle registrazioni hanno picchi sopra il massimo, che la
+  conversione taglierebbe, e come le misura il copione del doppiatore nel browser.
 
 ## 3. Kalé e Roderika: gli esiti tra ponte e strumento
 
@@ -127,7 +135,6 @@ Nei lavori aperti della §7 di `RIPARTIRE_DA_QUI.md`. In particolare:
 - mandare gli avvisi, pronti dal 10 novembre;
 - guardare il foglio con le colonne nuove e condividerlo;
 - il push dei due repository, dal terminale dell'utente;
-- Kenneth Haight e i WAV a 32 bit float (§2);
 - la nota delle 34 facoltative, che il socio non vede quando decide;
 - un `desktop.ini` in `pacchetti/Irina_Hyetta/audio-ita/`, che il controllo segnala a ogni
   giro come nome sbagliato.
